@@ -29,15 +29,19 @@
 //   adapted for the master template's settings table (key/value, scoped by
 //   agency_id) instead of the ops project's brand_kit table.
 //
-// CREDENTIALS REQUIRED IN public.settings (scoped by agency_id):
+// CREDENTIALS (resolved via public.get_setting RPC — Vault first, then
+// public.settings, scoped by agency_id):
 //   automation_runner_cron_secret  - random secret, also referenced by mig 011
-//   composio_api_key               - Composio API key
+//                                    (typically settings)
+//   composio_api_key               - Composio API key (typically Vault)
 //   composio_user_id               - Composio user ID for this agency
+//                                    (typically settings; identifier, not secret)
 //   composio_<conn>_account_id     - one per connection used by recipes;
 //                                    e.g. composio_gmail_account_id,
 //                                    composio_facebook_account_id, etc.
-//   telegram_bot_token             - OPTIONAL; failure alerts only
-//   telegram_chat_id               - OPTIONAL; failure alerts only
+//                                    (typically settings)
+//   telegram_bot_token             - OPTIONAL; failure alerts only (typically Vault)
+//   telegram_chat_id               - OPTIONAL; failure alerts only (typically settings)
 //
 // AUTH:
 //   verify_jwt = false
@@ -77,20 +81,21 @@ async function sleep(ms: number): Promise<void> {
 // --- helpers ------------------------------------------------------------
 
 /**
- * Read a credential from public.settings, scoped to the given agency.
- * Returns null if no row exists for that (agency_id, setting_key) pair.
+ * Read a credential, scoped to the given agency, via the Vault-aware
+ * public.get_setting RPC (introduced in migration 011a). The RPC resolves
+ * Vault first, then falls back to public.settings, so secrets stored in
+ * Vault (e.g. composio_api_key) are returned transparently to callers.
+ * Returns null if neither Vault nor public.settings has a value.
  */
 async function getSetting(agencyId: string, key: string): Promise<string | null> {
-  const { data, error } = await sb
-    .from("settings")
-    .select("setting_value")
-    .eq("agency_id", agencyId)
-    .eq("setting_key", key)
-    .maybeSingle();
+  const { data, error } = await sb.rpc("get_setting", {
+    p_agency_id: agencyId,
+    p_setting_key: key,
+  });
   if (error) {
-    throw new Error(`settings read failed for agency ${agencyId} key ${key}: ${error.message}`);
+    throw new Error(`get_setting RPC failed for agency ${agencyId} key ${key}: ${error.message}`);
   }
-  return data?.setting_value ?? null;
+  return (data as string | null) ?? null;
 }
 
 async function telegram(agencyId: string | null, text: string): Promise<void> {
