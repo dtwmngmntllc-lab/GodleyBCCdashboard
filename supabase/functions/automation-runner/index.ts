@@ -14,14 +14,20 @@
 //     3. Mark the recipe as "running" (sets last_run_at to NOW())
 //     4. Resolve Composio credentials from settings (agency-scoped)
 //     5. Call the recipe's composio_action with input_config arguments
-//     6. If groq_prompt is set, post the result data through the
-//        Composio-hosted LLM (COMPOSIO_SEARCH_GROQ_CHAT) for structured
-//        extraction. NO separate Groq API key required — auth is via the
-//        existing composio_api_key.
+//     6. If groq_prompt is set AND the Composio response contains data,
+//        post the result data through the Composio-hosted LLM
+//        (COMPOSIO_SEARCH_GROQ_CHAT) for structured extraction. NO separate
+//        Groq API key required — auth is via the existing composio_api_key.
 //     7. Write parsed records to the recipe's output_table per output_config
 //     8. Write a row to automation_run_log
 //     9. Update the recipe's last_run_status
 //    10. Telegram alert on failure (if Telegram creds present)
+//
+// S8/S9 PATCH (v3): the run-log summary for zero-record completions now
+//   honestly distinguishes (a) Composio returned 0 items / LLM skipped from
+//   (b) LLM ran and returned no parseable records from (c) shape didn't fit.
+//   The prior v2 summary text conflated (a) and (b), making it look like LLM
+//   calls were being burned when they weren't. No behavior change.
 //
 // PATTERN: Mirrors the Composio call shape in gmail-inbox-archiver and the
 //   auth/log/Telegram structure in linkedin-poster from the Imaginary Farms
@@ -76,6 +82,28 @@ function stripFences(s: string): string {
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Return true when a Composio tool response has no actionable data, so
+ * the LLM-parsing pass can be skipped. Treats common collection-shaped
+ * responses (messages/items/results/data arrays) as empty when their
+ * array length is zero. Conservative on unknown shapes — returns false
+ * so the LLM call still happens for recipes whose response_data doesn't
+ * use one of the recognized collection keys.
+ */
+function isEmptyComposioData(d: any): boolean {
+  if (d === null || d === undefined) return true;
+  if (Array.isArray(d)) return d.length === 0;
+  if (typeof d === "object") {
+    for (const key of ["messages", "items", "results", "data"]) {
+      if (Array.isArray((d as any)[key])) {
+        return (d as any)[key].length === 0;
+      }
+    }
+    return false;
+  }
+  return false;
 }
 
 // --- helpers ------------------------------------------------------------
@@ -406,24 +434,41 @@ async function executeRecipe(
     }
 
     let parsedRecords: any[] = [];
+    // Track which code path produced parsedRecords so the run-log summary can
+    // be honest about whether the LLM was actually called. Without this, the
+    // summary conflates "helper skipped LLM on empty input" with "LLM ran but
+    // returned []" — they look identical in logs but have very different
+    // cost and debugging implications.
+    let llmSkippedAsEmpty = false;
+    let llmWasCalled = false;
 
     // --- Optional: LLM parsing pass (via Composio-hosted Groq) ---
     if (recipe.groq_prompt && recipe.output_table) {
-      // Default expectation: composioResult.data is array-shaped or has a top-level
-      // collection (messages, items, results). Recipes that need a different shape
-      // can include extraction hints in groq_prompt.
-      const inputForLLM = JSON.stringify(composioResult.data).slice(0, 60000);
-      const llmResult = await callComposioLLM({
-        composioApiKey,
-        composioUserId,
-        systemPrompt: recipe.groq_prompt +
-          '\n\nReturn a JSON object: {"records": [...]} where records is an array of objects ready to insert into the output_table. Return {"records": []} if nothing applicable.',
-        userContent: inputForLLM,
-      });
-      if (!llmResult.ok) {
-        throw new Error(`LLM parsing failed: ${llmResult.error}`);
+      // Skip the LLM call when the Composio response has no actionable data.
+      // Typical for GMAIL_FETCH_EMAILS recipes when 0 messages match the
+      // query — avoids unnecessary LLM calls on empty inputs and surfaces a
+      // clean "0 records" success instead of attempting to parse nothing.
+      if (isEmptyComposioData(composioResult.data)) {
+        parsedRecords = [];
+        llmSkippedAsEmpty = true;
+      } else {
+        // Default expectation: composioResult.data is array-shaped or has a top-level
+        // collection (messages, items, results). Recipes that need a different shape
+        // can include extraction hints in groq_prompt.
+        const inputForLLM = JSON.stringify(composioResult.data).slice(0, 60000);
+        llmWasCalled = true;
+        const llmResult = await callComposioLLM({
+          composioApiKey,
+          composioUserId,
+          systemPrompt: recipe.groq_prompt +
+            '\n\nReturn a JSON object: {"records": [...]} where records is an array of objects ready to insert into the output_table. Return {"records": []} if nothing applicable.',
+          userContent: inputForLLM,
+        });
+        if (!llmResult.ok) {
+          throw new Error(`LLM parsing failed: ${llmResult.error}`);
+        }
+        parsedRecords = Array.isArray(llmResult.data?.records) ? llmResult.data.records : [];
       }
-      parsedRecords = Array.isArray(llmResult.data?.records) ? llmResult.data.records : [];
     } else if (recipe.output_table && Array.isArray(composioResult.data)) {
       // No LLM step — write raw composio data if it's already record-shaped
       parsedRecords = composioResult.data;
@@ -440,7 +485,17 @@ async function executeRecipe(
       recordsProcessed = writeResult.inserted + writeResult.updated;
       outputSummary = `${recordsProcessed} records written to ${recipe.output_table}`;
     } else if (recipe.output_table) {
-      outputSummary = `0 records — Composio returned data but LLM parsing yielded no records to write`;
+      // Honest, case-specific summary. Distinguishes three zero-record paths so
+      // downstream observers can tell whether the LLM ran (cost), was skipped
+      // (no cost — typical when the Composio call returned 0 items), or the
+      // response shape simply didn't fit the recipe's groq/output mapping.
+      if (llmSkippedAsEmpty) {
+        outputSummary = `0 records — Composio returned 0 items; LLM parsing skipped (no LLM cost)`;
+      } else if (llmWasCalled) {
+        outputSummary = `0 records — Composio returned non-empty data, but LLM parsing returned no records to write`;
+      } else {
+        outputSummary = `0 records — Composio response was not record-shaped and no groq_prompt was configured`;
+      }
     } else {
       // No output_table: this is an action-only recipe (e.g. send email,
       // post to social, archive). Composio call success is the result.
