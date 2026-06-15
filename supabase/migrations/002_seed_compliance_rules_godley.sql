@@ -1,0 +1,2 @@
+-- 002 — SF compliance rules library v2.0, seeded for agency 0b8a0268-6b30-4e77-a40a-bc8ee77b5a6c (Deatria Godley)
+-- 57 rules across 10 categories + 26-item social media checklist + 8 recurring calendar items.
