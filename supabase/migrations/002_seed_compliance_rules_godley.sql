@@ -1,2 +1,7 @@
 -- 002 — SF compliance rules library v2.0, seeded for agency 0b8a0268-6b30-4e77-a40a-bc8ee77b5a6c (Deatria Godley)
 -- 57 rules across 10 categories + 26-item social media checklist + 8 recurring calendar items.
+
+-- CATEGORY 1: CONTRACT FUNDAMENTALS
+INSERT INTO compliance_rules (agency_id, rule_code, category, title, description, requirement, source, severity, is_active) VALUES
+('0b8a0268-6b30-4e77-a40a-bc8ee77b5a6c'::UUID, 'AA05-001', 'contract', 'Independent Contractor Status', 'State Farm agents are INDEPENDENT CONTRACTORS, not employees. Agents have full control of daily activities, work hours, and methods. State Farm does not control the manner of work performance.', 'Never represent yourself as a State Farm employee. Always identify yourself as an independent contractor agent.', 'AA05 Section I.C — Independent Contractor Status', 'info', TRUE),
+('0b8a0268-6b30-4e77-a40a-bc8ee77b5a6c'::UUID, 'AA05-002', 'contract', 'Principal-Agent Relationship — Customer Not Client', 'The agent-customer relationship is Principal-Agent, NOT fiduciary. The word "client" implies a fiduciary duty the agent does not hold. Using "client" misrepresents the legal relationship and creates liability exposure. Always use "customer" in all contexts without exception.', 'Never use the word "client" in any context — social media, advertising, conversation, or written communications. Always use "customer." This is contractually required.', 'AA05 Section I.B — Principal-Agent Relationship', 'critical', TRUE)
