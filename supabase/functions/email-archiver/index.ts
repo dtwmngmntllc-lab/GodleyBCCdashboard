@@ -56,6 +56,17 @@
 //     status='failed' will now catch every partial-failure mode.
 //
 // =========================================================================
+// V2.5 V1-PATH PARITY (2026-06-17):
+//   - V1 path now uses the same per-message GMAIL_ADD_LABEL_TO_EMAIL loop
+//     as the V2 path (V2.3 fix). The original V1 path called
+//     GMAIL_BATCH_MODIFY_MESSAGES, which returns HTTP 404 "Tool not found"
+//     via the v3 execute endpoint, the same unrouted-slug issue the V2
+//     path already worked around. Behavior is otherwise unchanged: V1
+//     still archives a list of messages and inserts one documents row
+//     per archived message in a single bulk insert.
+//   - Version markers in metadata writes bumped from V2.4 to V2.5.
+//
+// =========================================================================
 // LIMITS (V2.0):
 //   - Single attachments > 5MB are skipped (GOOGLEDRIVE_UPLOAD_FILE cap).
 //     V2.1 will switch to GOOGLEDRIVE_RESUMABLE_UPLOAD for large files.
@@ -574,7 +585,7 @@ Deno.serve(async (req: Request) => {
     if (messages.length === 0) {
       const summary = `0 emails match archive query "${archiveQuery}". Nothing to archive.`;
       await writeOutcome("success", 0, summary, null, {
-        version: "V2.4",
+        version: "V2.5",
         path: routeAttachmentsToDrive ? "V2" : "V1",
         messages_total: 0,
         archive_query: archiveQuery,
@@ -606,20 +617,34 @@ Deno.serve(async (req: Request) => {
       const addLabels: string[] = addArchiveLabelId ? [addArchiveLabelId] : [];
       const removeLabels: string[] = ["INBOX"];
 
-      const modifyResult = await callComposio({
-        apiKey: composioApiKey,
-        userId: composioUserId,
-        connectedAccountId: gmailAccountId,
-        toolSlug: "GMAIL_BATCH_MODIFY_MESSAGES",
-        toolArguments: {
-          messageIds,
-          addLabelIds: addLabels,
-          removeLabelIds: removeLabels,
-        },
-      });
+      // NOTE (V2.5 fix, 2026-06-17): GMAIL_BATCH_MODIFY_MESSAGES returns HTTP
+      // 404 "Tool not found" via the v3 execute endpoint (same unrouted-slug
+      // issue the V2 path addressed in V2.3). Loop GMAIL_ADD_LABEL_TO_EMAIL
+      // per message instead. Per-message failures are aggregated and reported
+      // as a single error so the caller still sees a clean failed status with
+      // the full sampled detail in error_message.
+      const modifyFailures: Array<{ messageId: string; error: string }> = [];
+      for (const mid of messageIds) {
+        const modRes = await callComposio({
+          apiKey: composioApiKey,
+          userId: composioUserId,
+          connectedAccountId: gmailAccountId,
+          toolSlug: "GMAIL_ADD_LABEL_TO_EMAIL",
+          toolArguments: {
+            message_id: mid,
+            add_label_ids: addLabels,
+            remove_label_ids: removeLabels,
+          },
+        });
+        if (!modRes.ok) {
+          modifyFailures.push({ messageId: mid, error: `http=${modRes.httpStatus}: ${modRes.error}` });
+        }
+      }
 
-      if (!modifyResult.ok) {
-        throw new Error(`GMAIL_BATCH_MODIFY_MESSAGES failed (http=${modifyResult.httpStatus}): ${modifyResult.error}`);
+      if (modifyFailures.length > 0) {
+        const errSummary = `GMAIL_ADD_LABEL_TO_EMAIL failed for ${modifyFailures.length}/${messageIds.length} messages: ` +
+          modifyFailures.slice(0, 3).map((f) => `${f.messageId}=${f.error}`).join("; ");
+        throw new Error(errSummary);
       }
 
       const now = new Date().toISOString();
@@ -663,7 +688,7 @@ Deno.serve(async (req: Request) => {
           // failure that monitoring filtering on status='failed' missed.
           const partial = `V1 partial: archived ${messageIds.length} emails; documents log INSERT failed: ${docErr.message}`;
           await writeOutcome("failed", messageIds.length, partial, docErr.message, {
-            version: "V2.4",
+            version: "V2.5",
             path: "V1",
             messages_archived: messageIds.length,
             documents_inserted: 0,
@@ -688,7 +713,7 @@ Deno.serve(async (req: Request) => {
 
       const summary = `Archived ${messageIds.length} emails matching "${archiveQuery}"; ${docsInserted} rows logged to documents.`;
       await writeOutcome("success", messageIds.length, summary, null, {
-        version: "V2.4",
+        version: "V2.5",
         path: "V1",
         messages_archived: messageIds.length,
         documents_inserted: docsInserted,
@@ -1030,7 +1055,7 @@ Deno.serve(async (req: Request) => {
     const errMsg = errMsgParts.length > 0 ? errMsgParts.join(" | ").slice(0, 1000) : null;
 
     const v2Metadata: Record<string, any> = {
-      version: "V2.4",
+      version: "V2.5",
       path: "V2",
       messages_total: messageIds.length,
       messages_archived: archivedMessageIds.length,
@@ -1070,7 +1095,7 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await writeOutcome("failed", 0, `Failed: ${msg.slice(0, 200)}`, msg, {
-      version: "V2.4",
+      version: "V2.5",
       path: "unknown",
       crash: msg.slice(0, 1000),
     });
