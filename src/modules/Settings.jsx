@@ -63,51 +63,6 @@ const ROLES = {
   accountant:{ label:"Accountant", color:T.purple, bg:T.purpleLt,description:"Financials and Documents read-only access" },
 };
 
-// ─── Mock Data ────────────────────────────────────────────────
-const MOCK_USERS = [
-  { id:"u1", name:"Jane Smith",    email:"jane@smithagency.com",    role:"owner",     last_login:"Today 8:14 AM",    is_active:true,  is_current:true  },
-  { id:"u2", name:"Marcus Thompson",email:"marcus@smithagency.com", role:"staff",     last_login:"Today 9:02 AM",    is_active:true,  is_current:false },
-  { id:"u3", name:"Priya Patel",   email:"priya@smithagency.com",   role:"manager",   last_login:"Yesterday 5:30 PM",is_active:true,  is_current:false },
-  { id:"u4", name:"Steven Bonventre",email:"steven@clubcapitaltax.com",role:"accountant",last_login:"Apr 14, 2026",  is_active:true,  is_current:false },
-];
-
-const MOCK_CONNECTIONS = [
-  { id:"c1", platform:"Gmail",          icon:"📧", status:"error",   account:"jane@smithagency.com",        last_sync:"Today 6:00 AM",    note:"OAuth token expired — reconnect required" },
-  { id:"c2", platform:"Google Drive",   icon:"📁", status:"healthy", account:"jane@smithagency.com",        last_sync:"Yesterday 11:00 PM",note:"Active" },
-  { id:"c3", platform:"Google Calendar",icon:"📅", status:"healthy", account:"jane@smithagency.com",        last_sync:"Today 7:00 AM",    note:"Active" },
-  { id:"c4", platform:"Facebook",       icon:"👥", status:"healthy", account:"Smith Insurance Agency Page", last_sync:"Yesterday 9:00 AM", note:"Active" },
-  { id:"c5", platform:"LinkedIn",       icon:"💼", status:"healthy", account:"Jane Smith",                  last_sync:"Yesterday 12:00 PM",note:"Active" },
-  { id:"c6", platform:"Instagram",      icon:"📸", status:"manual",  account:"@smithinsurance",             last_sync:"N/A",              note:"Manual posting required — no API scheduling" },
-];
-
-const MOCK_AGENCY = {
-  name:          "Smith Insurance Agency",
-  owner_name:    "Jane Smith",
-  entity_type:   "S-Corporation",
-  tax_id:        "••-•••1847",
-  sf_agent_code: "IL 22-441A",
-  licensing_states:["IL","WI","IN"],
-  primary_email: "jane@smithagency.com",
-  phone:         "(312) 555-0182",
-  address:       "1420 N. Michigan Ave, Suite 301, Chicago, IL 60610",
-  google_account:"jane@smithagency.com",
-  vercel_url:    "smith-insurance-bcc.vercel.app",
-  setup_date:    "April 15, 2026",
-};
-
-const MOCK_CONFIG = {
-  timezone:          "America/Chicago",
-  fiscal_year_start: "January 1",
-  accounting_method: "Cash Basis",
-  currency:          "USD",
-  briefing_time:     "6:00 AM",
-  briefing_email:    "jane@smithagency.com",
-  briefing_enabled:  true,
-  aipp_target:       142000,
-  aipp_year:         2026,
-  dashboard_period:  "mtd",
-};
-
 // ─── Shared Components ────────────────────────────────────────
 const Card = ({ children, style={} }) => (
   <div style={{ background:T.white, border:`1px solid ${T.slate200}`, borderRadius:12, padding:"16px 18px", ...style }}>
@@ -197,8 +152,8 @@ const InviteModal = ({ onSave, onCancel }) => {
         </div>
         <div style={{ padding:20 }}>
           {[
-            { label:"Full Name", key:"name",  placeholder:"Jane Doe"              },
-            { label:"Email",     key:"email", placeholder:"jane@smithagency.com"  },
+            { label:"Full Name", key:"name",  placeholder:"Full name"             },
+            { label:"Email",     key:"email", placeholder:"name@example.com"     },
           ].map(f => (
             <div key={f.key} style={{ marginBottom:14 }}>
               <label style={{ fontSize:11, fontWeight:600, color:T.slate600, display:"block", marginBottom:5 }}>{f.label.toUpperCase()}</label>
@@ -866,6 +821,62 @@ export default function Settings() {
     { id:"about",       label:"About"              },
   ];
 
+  // ─── Normalize DB rows → component props ────────────────────
+  // The DB column names don't always match what the section
+  // components expect. Map them here so we can pass live data
+  // straight in. Null fields render as "—" in FieldRow.
+  const formatLongDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("en-US", { year:"numeric", month:"long", day:"numeric" });
+  };
+  const agencyRow = agencyData || {};
+  const installEmail = (agencyRow.primary_email || "").endsWith("placeholder.invalid")
+    ? "" : (agencyRow.primary_email || "");
+  const normalizedAgency = {
+    ...agencyRow,
+    sf_agent_code:    agencyRow.state_farm_agent_code || "",
+    google_account:   agencyRow.google_account_email || "",
+    licensing_states: Array.isArray(agencyRow.licensing_states) ? agencyRow.licensing_states : [],
+    primary_email:    installEmail,
+    setup_date:       formatLongDate(agencyRow.setup_date),
+  };
+
+  // Users — show real users when present, otherwise an empty
+  // list (TeamAccess renders an empty state for length 0).
+  const teamUsers = (usersData || []).map(u => ({
+    id:         u.id,
+    name:       u.full_name || u.email || "—",
+    email:      u.email || "",
+    role:       u.role  || "staff",
+    last_login: u.last_login ? new Date(u.last_login).toLocaleString() : "Never",
+    is_active:  u.is_active !== false,
+    is_current: false,
+    pending:    !u.last_login,
+  }));
+
+  // Connections — surface from social_accounts/composio in a
+  // later patch. For now pass an empty list so the Connections
+  // tab shows real state ("none connected") rather than mocks.
+  const connectionsList = [];
+
+  // Configuration — overlay any settings rows on top of safe
+  // defaults so BCCConfiguration always has its expected keys.
+  const configMap = (settingsData || []).reduce((acc, s) => {
+    if (s?.setting_key) acc[s.setting_key] = s.setting_value;
+    return acc;
+  }, {
+    timezone:          "America/Chicago",
+    fiscal_year_start: "January 1",
+    accounting_method: "Cash Basis",
+    currency:          "USD",
+    briefing_time:     "6:00 AM",
+    briefing_email:    installEmail,
+    briefing_enabled:  true,
+    dashboard_period:  "mtd",
+  });
+
   return (
     <div>
       {/* Module Header */}
@@ -886,11 +897,12 @@ export default function Settings() {
       </div>
 
       {/* Section Content */}
-      {section === "profile"     && <AgencyProfile      agency={MOCK_AGENCY} />}
-      {section === "team"        && <TeamAccess         users={MOCK_USERS} />}
-      {section === "connections" && <ConnectedAccounts  connections={MOCK_CONNECTIONS} />}
-      {section === "config"      && <BCCConfiguration   config={MOCK_CONFIG} />}
-      {section === "about"       && <About              agency={MOCK_AGENCY} />}
+      {loading && <Card><div style={{ fontSize:12, color:T.slate500, textAlign:"center", padding:30 }}>Loading…</div></Card>}
+      {!loading && section === "profile"     && <AgencyProfile      agency={normalizedAgency} />}
+      {!loading && section === "team"        && <TeamAccess         users={teamUsers} />}
+      {!loading && section === "connections" && <ConnectedAccounts  connections={connectionsList} />}
+      {!loading && section === "config"      && <BCCConfiguration   config={configMap} />}
+      {!loading && section === "about"       && <About              agency={normalizedAgency} />}
     </div>
   );
 }
