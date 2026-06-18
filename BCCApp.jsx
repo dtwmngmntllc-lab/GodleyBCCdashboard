@@ -23,3 +23,160 @@ import DemoBanner from "./src/components/DemoBanner.jsx";
 //
 // ARCHITECTURE:
 // ┌──────────────────────────────────────────────────────┐
+// │  This file: Frontend UI (React)                      │
+// │  Data:      Supabase (SUPABASE_URL + ANON_KEY only) │
+// │  Execution: Composio (connected accounts)            │
+// │  Processing: Groq via Composio (free, no API key)   │
+// │  Intelligence: Claude.ai (client's subscription)    │
+// │  Hosting:   Vercel (client's free account)          │
+// │  Recipes:   Stored in automation_recipes table      │
+// │  Schedules: Cron triggers in Supabase               │
+// │                                                      │
+// │  NO Anthropic API key required in this app.         │
+// │  Claude.ai opens in a new tab with context.         │
+// └─────────────────────────────────────────────────────┘
+//
+// ENVIRONMENT VARIABLES NEEDED (.env):
+//   VITE_SUPABASE_URL=https://[project].supabase.co
+//   VITE_SUPABASE_ANON_KEY=[anon key]
+//
+// That's it. Two variables. Nothing else.
+// ============================================================
+
+
+// ─── Design Tokens ─────────────────────────────────────────────────────────────
+const TOKENS = {
+  navy:    "#1B2B4B",
+  navyDark:"#121E35",
+  blue:    "#2D7DD2",
+  blueLt:  "#EFF6FF",
+  green:   "#10B981",
+  greenLt: "#D1FAE5",
+  amber:   "#F59E0B",
+  amberLt: "#FEF3C7",
+  red:     "#EF4444",
+  redLt:   "#FEE2E2",
+  slate50: "#F8FAFC",
+  slate100:"#F1F5F9",
+  slate200:"#E2E8F0",
+  slate400:"#94A3B8",
+  slate500:"#64748B",
+  slate700:"#334155",
+  slate900:"#0F172A",
+  white:   "#FFFFFF",
+};
+
+// ─── App Context ─────────────────────────────────────────────────────────────
+const AppContext = createContext(null);
+const useApp = () => useContext(AppContext);
+
+// ─── Fallback Agency Data ──────────────────────────────────────────────────
+// Neutral placeholders used only when Supabase returns null for a given field.
+// Real values come from the agency table via the effect below.
+const FALLBACK_AGENCY = {
+  name: "Your Agency",
+  agentCode: "—",
+  user: { name: "Owner", initials: "—", role: "owner", email: "" },
+  alerts: 0,
+};
+
+// ─── Navigation Config ────────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  { id: "dashboard",   label: "Dashboard",       icon: "grid",        roles: ["owner","manager","staff","readonly","accountant"] },
+  { id: "financials",  label: "Financials",       icon: "dollar",      roles: ["owner","manager","accountant"] },
+  { id: "memory",      label: "Memory",           icon: "brain",       roles: ["owner","manager"] },
+  { id: "compliance",  label: "Compliance",       icon: "shield",      roles: ["owner","manager"] },
+  { id: "automations", label: "Automations",      icon: "zap",         roles: ["owner","manager"] },
+  { id: "social",      label: "Social Media",     icon: "share",       roles: ["owner","manager","staff"] },
+  { id: "tasks",       label: "Tasks & Goals",    icon: "check",       roles: ["owner","manager","staff","readonly"] },
+  { id: "alerts",      label: "Alerts",           icon: "bell",        roles: ["owner","manager","staff","readonly","accountant"] },
+  { id: "documents",   label: "Documents",        icon: "folder",      roles: ["owner","manager","accountant"] },
+  { id: "hr",          label: "HR & People",      icon: "users",       roles: ["owner","manager"] },
+  { id: "chat",        label: "Claude Chat",      icon: "message",     roles: ["owner","manager","staff","readonly","accountant"] },
+  { id: "settings",    label: "Settings",         icon: "settings",    roles: ["owner"] },
+];
+
+// ─── SVG Icons ────────────────────────────────────────────────────────────────
+const Icon = ({ name, size = 16, color = "currentColor", strokeWidth = 1.75 }) => {
+  const s = { width: size, height: size, flexShrink: 0 };
+  const p = { fill: "none", stroke: color, strokeWidth, strokeLinecap: "round", strokeLinejoin: "round" };
+  const icons = {
+    grid:       <svg style={s} viewBox="0 0 24 24" {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>,
+    dollar:     <svg style={s} viewBox="0 0 24 24" {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+    brain:      <svg style={s} viewBox="0 0 24 24" {...p}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.13A3 3 0 0 1 4 12a3 3 0 0 1 2-2.83 2.5 2.5 0 0 1 1.5-4.17z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.13A3 3 0 0 0 20 12a3 3 0 0 0-2-2.83 2.5 2.5 0 0 0-1.5-4.17z"/></svg>,
+    shield:     <svg style={s} viewBox="0 0 24 24" {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>,
+    zap:        <svg style={s} viewBox="0 0 24 24" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+    share:      <svg style={s} viewBox="0 0 24 24" {...p}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
+    check:      <svg style={s} viewBox="0 0 24 24" {...p}><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
+    bell:       <svg style={s} viewBox="0 0 24 24" {...p}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
+    folder:     <svg style={s} viewBox="0 0 24 24" {...p}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
+    users:      <svg style={s} viewBox="0 0 24 24" {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+    message:    <svg style={s} viewBox="0 0 24 24" {...p}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+    settings:   <svg style={s} viewBox="0 0 24 24" {...p}><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>,
+    chevronLeft:<svg style={s} viewBox="0 0 24 24" {...p}><polyline points="15 18 9 12 15 6"/></svg>,
+    chevronRight:<svg style={s} viewBox="0 0 24 24" {...p}><polyline points="9 18 15 12 9 6"/></svg>,
+    logout:     <svg style={s} viewBox="0 0 24 24" {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+    menu:       <svg style={s} viewBox="0 0 24 24" {...p}><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+    x:          <svg style={s} viewBox="0 0 24 24" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    lightning:  <svg style={s} viewBox="0 0 24 24" fill={color} stroke="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+    externalLink:<svg style={s} viewBox="0 0 24 24" {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
+  };
+  return icons[name] || null;
+};
+
+// ─── Styles (CSS-in-JS) ────────────────────────────────────────────────────
+const css = {
+  app: {
+    display: "flex", flexDirection: "column",
+    height: "100vh", minHeight: 600,
+    fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif",
+    background: TOKENS.slate50,
+    overflow: "hidden",
+  },
+
+  // Header
+  header: {
+    background: TOKENS.navy,
+    height: 58,
+    display: "flex", alignItems: "center",
+    justifyContent: "space-between",
+    padding: "0 20px",
+    flexShrink: 0,
+    borderBottom: `1px solid ${TOKENS.navyDark}`,
+    zIndex: 100,
+  },
+  headerLeft: { display: "flex", alignItems: "center", gap: 12 },
+  headerLogo: {
+    width: 32, height: 32,
+    background: TOKENS.blue,
+    borderRadius: 8,
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  agencyName: { fontSize: 14, fontWeight: 600, color: TOKENS.white, letterSpacing: "-0.01em" },
+  agencySub:  { fontSize: 10, color: TOKENS.slate400, marginTop: 1 },
+  headerRight: { display: "flex", alignItems: "center", gap: 16 },
+  bellWrap: { position: "relative", cursor: "pointer", padding: 4 },
+  bellBadge: {
+    position: "absolute", top: 0, right: 0,
+    background: TOKENS.red, color: TOKENS.white,
+    fontSize: 9, fontWeight: 700,
+    borderRadius: "50%", width: 16, height: 16,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    border: `2px solid ${TOKENS.navy}`,
+  },
+  userPill: {
+    display: "flex", alignItems: "center", gap: 8,
+    cursor: "pointer", padding: "4px 8px",
+    borderRadius: 8,
+    transition: "background 0.15s",
+  },
+  avatar: {
+    width: 30, height: 30, borderRadius: "50%",
+    background: TOKENS.blue,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 11, fontWeight: 700, color: TOKENS.white,
+    flexShrink: 0,
+  },
+  userName: { fontSize: 12, fontWeight: 600, color: TOKENS.white },
+  userRole: { fontSize: 10, color: TOKENS.slate400, textTransform: "capitalize" },
+};
