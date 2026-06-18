@@ -645,3 +645,51 @@ This creates a commit authored by the repo owner — Vercel accepts it and build
 **Implication for future installs:** The four-bucket analysis applies to every BCC install. Future Process A/B installs should follow this same seeding pattern for Bucket 3/4 tables that have safe templates, and build the Bucket 1 intake collection into the install handoff.
 
 ---
+
+## V1.2 Workbench Document Parser (Godley install, June 18 2026)
+
+**Context:** Composio's `COMPOSIO_SEARCH_GROQ_CHAT` slug is 404 in the `dtwmngmntllc_workspace` project (support ticket #15299abd — open and unresolved). The 6 Processor recipes (`comp_recap`, `bank_statement`, `credit_card_statement`, `payroll`, `producer_production`, `deduction_statement`) cannot do their LLM extraction step server-side until Composio fixes the routing.
+
+**Workaround pattern (V1.2):** The `document-processor` Edge Function still files attachments to Drive autonomously via pg_cron (working). A new parser script `tools/document_parser.py` runs in the Composio Workbench at the start of every Project Claude session, picking up any documents with `parsed_at IS NULL` and turning them into structured rows. The Workbench's built-in `invoke_llm` helper is free, uses the existing Composio account, and is reachable only from inside a Workbench Python session (MCP-only) — that's why the parser must run at session start rather than on pg_cron.
+
+**Schema (apply via migration during install):**
+- `documents` adds `parsed_at TIMESTAMPTZ`, `parsed_records_count INTEGER`, `parse_error TEXT` + partial index `documents_parser_pending_idx`
+- `parser_get_pending_documents(p_agency_id UUID)` RPC — returns up to 50 oldest unparsed docs joined to recipe by `fixed_category`. Anon-callable, security_definer.
+- `parser_record_document_parse(p_document_id UUID, p_records JSONB, p_error TEXT)` RPC — looks up the recipe by `fixed_category`, validates `output_table` against an allow-list (`comp_recap,journal_entries,credit_transactions,payroll_runs,payroll_detail,producer_production`), dynamically builds INSERT column list excluding `id` and `created_at` so defaults fire, stamps document `parsed_at` + `parsed_records_count`. Per-record errors collected and surfaced.
+
+**Subtle but critical detail in the RPC:** The first version of `parser_record_document_parse` used `INSERT INTO ... SELECT * FROM jsonb_populate_record(NULL::table, $1)` and silently inserted nothing — because the NULL row from `jsonb_populate_record` produces NULL for every column not in the JSON, including `id`, which overrides the column's `DEFAULT uuid_generate_v4()`. Fix is to introspect `information_schema.columns` and build an explicit column list excluding `id` and `created_at` so their defaults fire. Pattern carved into the v2 of the function.
+
+**Project Claude system prompt:** `# YOUR STARTUP PROTOCOL` fetches the parser from `raw.githubusercontent.com/{install-repo}/main/tools/document_parser.py` and calls `run_parser(agency_id=...)` as the very first action of every session, before reading `persistent_memory`. Three output cases handled (silent when nothing pending; one-line summary in greeting when documents parsed; failure list when parses errored).
+
+**End-to-end verified at Godley install** with a synthetic comp_recap document: pending fetch found it joined to recipe, parse RPC inserted 2 rows into `comp_recap`, document stamped, idempotency check passed.
+
+**Implication for future installs:** If `COMPOSIO_SEARCH_GROQ_CHAT` is also 404 in the new install's Composio workspace (likely — same project class), reuse the V1.2 pattern. The parser script lives in the install repo and the RPCs deploy via migration; the only install step is updating the Project Claude system prompt with the agency-specific UUID and repo URL.
+
+---
+
+## Correction — GL Entry Writer Verified Healthy (Godley install, June 18 2026)
+
+**A misdiagnosis worth recording, because the test pattern itself is dangerous.** While smoke-testing `gl_entry_writer`, I combined a data-modifying CTE (`INSERT INTO comp_recap`), a function call (`SELECT gl_entry_writer(...)`), and verification SELECTs into a single PostgreSQL statement. The verification reads showed `posted_at` still NULL on the synthetic comp_recap rows and `journal_entries.document_id` NULL, leading me to claim two "bugs" — neither real.
+
+**Cause was CTE snapshot isolation.** Per PostgreSQL docs: *"When using data-modifying statements in WITH, all the statements are executed with the same snapshot, so they cannot 'see' one another's effects on the target tables."* The verification SELECTs saw the pre-statement snapshot of `comp_recap` and `journal_entries`, not the writes the in-statement function call had just made.
+
+**Verified-healthy results** (separate statements so each sees committed state):
+- 3 synthetic comp_recap rows ($1,000 auto new_biz / $500 home renewal / $250 life new_biz)
+- `gl_entry_writer` reported `records_processed: 3`
+- All 3 comp_recap rows had `posted_at` stamped to the same timestamp
+- 3 journal_entries created, all linked via `reference_number = 'comp_recap:<uuid>'` (the writer's chosen back-link — `document_id` is reserved for actual `documents.id` references; using it for comp_recap rows would be a category error)
+- 6 journal_lines with correct double-entry splits: `new_business→4010`, `renewal→4020`, cash side→`1010`
+- Balance check: $1,750 debit = $1,750 credit
+- Idempotency check: second fire processed 0 records (posted_at filter working)
+
+**Lesson:** When testing data-modifying SQL functions, ALWAYS separate the fire and the verification into different statements. The same-snapshot semantics of single-statement CTE will produce phantom "broken function" reports otherwise. This applies to every internal handler (`gl_entry_writer`, `monthly_close_monitor`, `producer_underperformance_watcher`).
+
+---
+
+## Settings Schema Note — Two Cash-Account Key Names Coexist
+
+**Pattern observed at Godley install:** `gl_entry_writer` (migration 012) reads cash account from `settings.default_cash_account_code` with a hard fallback to `'1010'`. `docs/AUTOMATION_RECIPES_BLUEPRINT.md` documents four GL-related settings keys (`gl_chart_namespace`, `gl_cutover_date`, `gl_default_cash_account_name`, `gl_default_sf_revenue_account_name`) — different namespace prefix and `_name` not `_code`. These keys are not currently wired together. The writer works because the `'1010'` fallback matches the standard SF agent chart-of-accounts seed, but the configured-name path is dormant.
+
+**Implication for future installs:** Either align the writer to read from `gl_default_cash_account_name` (look up code by name in `chart_of_accounts`) OR populate `default_cash_account_code` explicitly during install. For now the fallback is doing the work and there's no operational issue. Flagged for future cleanup.
+
+---
