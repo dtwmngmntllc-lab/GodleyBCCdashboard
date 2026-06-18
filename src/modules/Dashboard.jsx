@@ -363,12 +363,10 @@ export default function Dashboard({ onNavigate = () => {} }) {
       try {
         // Parallel fetch all dashboard data
         const [
-          agencyRes, summaryRes, aippRes, tasksRes,
+          agencyRes, aippRes, tasksRes,
           alertsRes, memoryRes, complianceRes, closeRes, closeChecklistRes
         ] = await Promise.allSettled([
           supabase.from("agency").select("*").limit(1).single(),
-          Promise.resolve({ data: null }), // removed — no comp_recap_data  table
-          //Promise.resolve({ data: null }), // comp_recap_data  removed — no such table in schema
           supabase.from("aipp_tracking").select("*").order("program_year",{ascending:false}).limit(1).single(),
           supabase.from("tasks").select("*").eq("status","open").order("priority").limit(20),
           supabase.from("alerts").select("*").eq("is_resolved",false).order("created_at",{ascending:false}).limit(10),
