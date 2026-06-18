@@ -22,7 +22,7 @@ import DemoBanner from "./src/components/DemoBanner.jsx";
 // Built by Imaginary Farms LLC · imaginary-farms.com
 //
 // ARCHITECTURE:
-// ┌──────────────────────────────────────────────────────┐
+// ┌─────────────────────────────────────────────────────┐
 // │  This file: Frontend UI (React)                      │
 // │  Data:      Supabase (SUPABASE_URL + ANON_KEY only) │
 // │  Execution: Composio (connected accounts)            │
@@ -44,7 +44,7 @@ import DemoBanner from "./src/components/DemoBanner.jsx";
 // ============================================================
 
 
-// ─── Design Tokens ─────────────────────────────────────────────────────────────
+// ─── Design Tokens ────────────────────────────────────────────────────────────
 const TOKENS = {
   navy:    "#1B2B4B",
   navyDark:"#121E35",
@@ -66,7 +66,7 @@ const TOKENS = {
   white:   "#FFFFFF",
 };
 
-// ─── App Context ─────────────────────────────────────────────────────────────
+// ─── App Context ──────────────────────────────────────────────────────────────
 const AppContext = createContext(null);
 const useApp = () => useContext(AppContext);
 
@@ -124,7 +124,7 @@ const Icon = ({ name, size = 16, color = "currentColor", strokeWidth = 1.75 }) =
   return icons[name] || null;
 };
 
-// ─── Styles (CSS-in-JS) ────────────────────────────────────────────────────
+// ─── Styles (CSS-in-JS) ───────────────────────────────────────────────────────
 const css = {
   app: {
     display: "flex", flexDirection: "column",
@@ -179,4 +179,388 @@ const css = {
   },
   userName: { fontSize: 12, fontWeight: 600, color: TOKENS.white },
   userRole: { fontSize: 10, color: TOKENS.slate400, textTransform: "capitalize" },
+
+  // Body
+  body: { display: "flex", flex: 1, overflow: "hidden" },
+
+  // Sidebar Nav
+  nav: (collapsed) => ({
+    width: collapsed ? 56 : 220,
+    background: TOKENS.white,
+    borderRight: `1px solid ${TOKENS.slate200}`,
+    display: "flex", flexDirection: "column",
+    flexShrink: 0,
+    transition: "width 0.2s ease",
+    overflow: "hidden",
+    zIndex: 50,
+  }),
+  navScroll: { flex: 1, overflowY: "auto", overflowX: "hidden", padding: "8px 0" },
+  navItem: (active, collapsed) => ({
+    display: "flex", alignItems: "center",
+    gap: collapsed ? 0 : 10,
+    padding: collapsed ? "10px 0" : "9px 14px",
+    justifyContent: collapsed ? "center" : "flex-start",
+    cursor: "pointer",
+    fontSize: 12.5, fontWeight: active ? 600 : 400,
+    color: active ? TOKENS.blue : TOKENS.slate500,
+    background: active ? TOKENS.blueLt : "transparent",
+    borderLeft: active ? `3px solid ${TOKENS.blue}` : "3px solid transparent",
+    borderRadius: collapsed ? 0 : "0 6px 6px 0",
+    marginRight: collapsed ? 0 : 8,
+    transition: "all 0.12s",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  }),
+  navLabel: (collapsed) => ({
+    opacity: collapsed ? 0 : 1,
+    maxWidth: collapsed ? 0 : 160,
+    transition: "opacity 0.15s, max-width 0.2s",
+    overflow: "hidden",
+  }),
+  navCollapseBtn: {
+    padding: "10px 0",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    borderTop: `1px solid ${TOKENS.slate200}`,
+    cursor: "pointer",
+    color: TOKENS.slate400,
+    transition: "color 0.15s",
+  },
+  navFooter: {
+    padding: "8px 14px 12px",
+    borderTop: `1px solid ${TOKENS.slate200}`,
+  },
+
+  // Main Content
+  main: {
+    flex: 1, overflowY: "auto",
+    display: "flex", flexDirection: "column",
+  },
+  mainInner: { flex: 1, padding: "20px 24px" },
+
+  // Page Header (used by each module)
+  pageHeader: {
+    display: "flex", alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  pageTitle: {
+    fontSize: 20, fontWeight: 700,
+    color: TOKENS.slate900, letterSpacing: "-0.02em",
+  },
+  pageSubtitle: {
+    fontSize: 12, color: TOKENS.slate500, marginTop: 3,
+  },
+
+  // Ask Claude Button
+  askBtn: {
+    display: "flex", alignItems: "center", gap: 6,
+    background: TOKENS.blue, color: TOKENS.white,
+    border: "none", borderRadius: 8,
+    padding: "8px 14px",
+    fontSize: 12, fontWeight: 600,
+    cursor: "pointer",
+    transition: "background 0.15s, transform 0.1s",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+
+  // Cards
+  card: {
+    background: TOKENS.white,
+    border: `1px solid ${TOKENS.slate200}`,
+    borderRadius: 12,
+    padding: "16px 18px",
+  },
+  cardTitle: {
+    fontSize: 12, fontWeight: 600,
+    color: TOKENS.slate700,
+    marginBottom: 12,
+    display: "flex", alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  // KPI Cards
+  kpiGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+    gap: 12, marginBottom: 16,
+  },
+  kpi: {
+    background: TOKENS.white,
+    border: `1px solid ${TOKENS.slate200}`,
+    borderRadius: 12, padding: "14px 16px",
+  },
+  kpiLabel: { fontSize: 11, color: TOKENS.slate500, marginBottom: 6, fontWeight: 500 },
+  kpiValue: { fontSize: 22, fontWeight: 700, color: TOKENS.slate900, letterSpacing: "-0.02em", marginBottom: 4 },
+  kpiTrend: { fontSize: 11, display: "flex", alignItems: "center", gap: 4 },
+
+  // Status Pills
+  pill: (type) => {
+    const map = {
+      success: { bg: TOKENS.greenLt, color: "#065F46" },
+      warning: { bg: TOKENS.amberLt, color: "#92400E" },
+      danger:  { bg: TOKENS.redLt,   color: "#991B1B" },
+      info:    { bg: TOKENS.blueLt,  color: "#1E40AF" },
+    };
+    const t = map[type] || map.info;
+    return {
+      display: "inline-flex", alignItems: "center",
+      fontSize: 10, fontWeight: 600,
+      padding: "3px 8px", borderRadius: 20,
+      background: t.bg, color: t.color,
+      whiteSpace: "nowrap",
+    };
+  },
+
+  // Footer
+  footer: {
+    padding: "8px 24px",
+    borderTop: `1px solid ${TOKENS.slate200}`,
+    background: TOKENS.white,
+    textAlign: "center",
+    fontSize: 10, color: TOKENS.slate400,
+    flexShrink: 0,
+  },
 };
+
+// ─── Ask Claude Button Component ──────────────────────────────────────────────
+const AskClaudeBtn = ({ context, size = "normal" }) => {
+  const handleClick = () => {
+    const prompt = context || "I am reviewing my Business Command Center. Help me analyze what I'm seeing.";
+    navigator.clipboard?.writeText(prompt).catch(() => {});
+    window.open("https://claude.ai", "_blank");
+  };
+  return (
+    <button
+      style={{
+        ...css.askBtn,
+        padding: size === "small" ? "5px 10px" : "8px 14px",
+        fontSize: size === "small" ? 11 : 12,
+      }}
+      onClick={handleClick}
+      title="Copies context to clipboard and opens Claude.ai"
+    >
+      <Icon name="lightning" size={12} color={TOKENS.white} />
+      Ask Claude
+      <Icon name="externalLink" size={11} color="rgba(255,255,255,0.7)" />
+    </button>
+  );
+};
+
+// ─── Module Placeholders ──────────────────────────────────────────────────────
+// Each will be replaced with full module builds in subsequent steps
+
+const ComingSoon = ({ module }) => (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: 12, padding: 40, textAlign: "center" }}>
+    <div style={{ width: 56, height: 56, borderRadius: 16, background: TOKENS.blueLt, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Icon name="zap" size={24} color={TOKENS.blue} />
+    </div>
+    <div style={{ fontSize: 18, fontWeight: 700, color: TOKENS.slate900 }}>{module}</div>
+    <div style={{ fontSize: 13, color: TOKENS.slate500, maxWidth: 300, lineHeight: 1.6 }}>
+      This module is being built. Check back as we complete each section of your BCC.
+    </div>
+  </div>
+);
+
+// ─── Module Router ────────────────────────────────────────────────────────────
+// All 11 modules built. In production each is imported from src/modules/.
+// This shell routes to each module component. ComingSoon is only used
+// for the Claude Chat module which connects to Claude.ai externally.
+const ModuleRouter = ({ active, onNavigate }) => {
+  const modules = {
+    dashboard:   <ErrorBoundary name="Dashboard"><Dashboard onNavigate={onNavigate} /></ErrorBoundary>,
+    financials:  <ErrorBoundary name="Financials"><Financials /></ErrorBoundary>,
+    memory:      <ErrorBoundary name="Memory"><PersistentMemory /></ErrorBoundary>,
+    compliance:  <ErrorBoundary name="Compliance"><ComplianceCenter /></ErrorBoundary>,
+    automations: <ErrorBoundary name="Automations"><Automations /></ErrorBoundary>,
+    social:      <ErrorBoundary name="Social Media"><SocialMedia /></ErrorBoundary>,
+    tasks:       <ErrorBoundary name="Tasks & Goals"><TasksGoals /></ErrorBoundary>,
+    alerts:      <ErrorBoundary name="Alerts"><AlertsNotifications onNavigate={onNavigate} /></ErrorBoundary>,
+    documents:   <ErrorBoundary name="Documents"><Documents /></ErrorBoundary>,
+    hr:          <ErrorBoundary name="HR & People"><HRPeople /></ErrorBoundary>,
+    settings:    <ErrorBoundary name="Settings"><Settings /></ErrorBoundary>,
+    chat: (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", flex:1, gap:16, padding:40, textAlign:"center" }}>
+        <div style={{ fontSize:40 }}>💬</div>
+        <div style={{ fontSize:18, fontWeight:700, color:TOKENS.slate900 }}>Claude Chat</div>
+        <div style={{ fontSize:13, color:TOKENS.slate500, maxWidth:360, lineHeight:1.7 }}>
+          Your Claude.ai account is your intelligence layer. Open it in a new tab and your BCC data is already in context through your Project instructions.
+        </div>
+        <button
+          onClick={() => window.open("https://claude.ai","_blank")}
+          style={{ display:"flex", alignItems:"center", gap:8, background:TOKENS.blue, color:"#fff", border:"none", borderRadius:10, padding:"12px 24px", fontSize:13, fontWeight:700, cursor:"pointer" }}
+        >
+          <Icon name="externalLink" size={14} color="#fff" />
+          Open Claude.ai
+        </button>
+        <div style={{ fontSize:11, color:TOKENS.slate400, maxWidth:320, lineHeight:1.6 }}>
+          Tip: Use the Ask Claude buttons throughout your BCC — they open Claude.ai with your data already in the prompt. One paste and Claude knows exactly what you're looking at.
+        </div>
+      </div>
+    ),
+  };
+  return modules[active] || <ComingSoon module={active} />;
+};
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function BCCApp() {
+  const [activeModule, setActiveModule] = useState("dashboard");
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [agency, setAgency] = useState(FALLBACK_AGENCY);
+
+  useEffect(() => {
+    if (!supabase || !AGENCY_ID) return;
+    supabase
+      .from("agency")
+      .select("name, state_farm_agent_code, owner_name, primary_email")
+      .eq("id", AGENCY_ID)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) return; // graceful fallback to FALLBACK_AGENCY
+        // Strip install-time placeholder emails so the fallback empty string wins
+        const cleanEmail = (data.primary_email || "").endsWith(".invalid")
+          ? ""
+          : data.primary_email;
+        const displayName = data.owner_name || FALLBACK_AGENCY.user.name;
+        setAgency({
+          name: data.name || FALLBACK_AGENCY.name,
+          agentCode: data.state_farm_agent_code || FALLBACK_AGENCY.agentCode,
+          user: {
+            name: displayName,
+            initials: displayName
+              .split(" ").map(n => n[0]).filter(Boolean).join("").toUpperCase() || FALLBACK_AGENCY.user.initials,
+            role: "owner",
+            email: cleanEmail || FALLBACK_AGENCY.user.email,
+          },
+          alerts: FALLBACK_AGENCY.alerts,
+        });
+      });
+  }, []);
+
+  const visibleNav = NAV_ITEMS.filter(n => n.roles.includes(agency.user.role));
+
+  return (
+    <AppContext.Provider value={{ agency, activeModule, setActiveModule }}>
+      <div style={css.app}>
+        <DemoBanner />
+
+        {/* ── Header ── */}
+        <header style={css.header}>
+          <div style={css.headerLeft}>
+            <div style={css.headerLogo}>
+              <Icon name="lightning" size={16} color={TOKENS.white} />
+            </div>
+            <div>
+              <div style={css.agencyName}>{agency.name}</div>
+              <div style={css.agencySub}>Business Command Center</div>
+            </div>
+          </div>
+
+          <div style={css.headerRight}>
+            {/* Alerts Bell */}
+            <div style={css.bellWrap} title={`${agency.alerts} active alerts`}>
+              <Icon name="bell" size={18} color={TOKENS.slate400} />
+              {agency.alerts > 0 && <span style={css.bellBadge}>{agency.alerts}</span>}
+            </div>
+
+            {/* User Menu */}
+            <div style={{ position: "relative" }}>
+              <div
+                style={css.userPill}
+                onClick={() => setUserMenuOpen(o => !o)}
+              >
+                <div style={css.avatar}>{agency.user.initials}</div>
+                <div>
+                  <div style={css.userName}>{agency.user.name}</div>
+                  <div style={css.userRole}>{agency.user.role}</div>
+                </div>
+              </div>
+              {userMenuOpen && (
+                <div style={{
+                  position: "absolute", right: 0, top: "calc(100% + 8px)",
+                  background: TOKENS.white, border: `1px solid ${TOKENS.slate200}`,
+                  borderRadius: 10, padding: 6, minWidth: 160,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 200,
+                }}>
+                  <div style={{ padding: "8px 10px", fontSize: 11, color: TOKENS.slate500, borderBottom: `1px solid ${TOKENS.slate200}`, marginBottom: 4 }}>
+                    {agency.user.email}
+                  </div>
+                  {["Profile", "Notification Settings", "Team Access"].map(item => (
+                    <div key={item} style={{ padding: "7px 10px", fontSize: 12, color: TOKENS.slate700, cursor: "pointer", borderRadius: 6 }}
+                      onClick={() => { setActiveModule("settings"); setUserMenuOpen(false); }}>
+                      {item}
+                    </div>
+                  ))}
+                  <div style={{ borderTop: `1px solid ${TOKENS.slate200}`, marginTop: 4, paddingTop: 4 }}>
+                    <div style={{ padding: "7px 10px", fontSize: 12, color: TOKENS.red, cursor: "pointer", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icon name="logout" size={13} color={TOKENS.red} /> Sign out
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* ── Body ── */}
+        <div style={css.body} onClick={() => userMenuOpen && setUserMenuOpen(false)}>
+
+          {/* ── Sidebar ── */}
+          <nav style={css.nav(navCollapsed)}>
+            <div style={css.navScroll}>
+              {visibleNav.map(item => {
+                const active = activeModule === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    style={css.navItem(active, navCollapsed)}
+                    onClick={() => setActiveModule(item.id)}
+                    title={navCollapsed ? item.label : ""}
+                  >
+                    <Icon
+                      name={item.icon}
+                      size={15}
+                      color={active ? TOKENS.blue : TOKENS.slate400}
+                    />
+                    <span style={css.navLabel(navCollapsed)}>{item.label}</span>
+                    {item.id === "alerts" && !navCollapsed && agency.alerts > 0 && (
+                      <span style={{ ...css.pill("danger"), marginLeft: "auto", fontSize: 9, padding: "2px 6px" }}>
+                        {agency.alerts}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Collapse Toggle */}
+            <div
+              style={css.navCollapseBtn}
+              onClick={() => setNavCollapsed(c => !c)}
+              title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+            >
+              <Icon name={navCollapsed ? "chevronRight" : "chevronLeft"} size={14} color={TOKENS.slate400} />
+            </div>
+          </nav>
+
+          {/* ── Main Content ── */}
+          <main style={css.main}>
+            <div style={css.mainInner}>
+              <ModuleRouter active={activeModule} onNavigate={setActiveModule} />
+            </div>
+
+            {/* Footer */}
+            <div style={css.footer}>
+              Built by Imaginary Farms LLC &nbsp;·&nbsp; The Claude Whisperer &nbsp;·&nbsp;
+              <a href="https://imaginary-farms.com" target="_blank" rel="noopener noreferrer"
+                style={{ color: TOKENS.slate400, textDecoration: "none" }}>
+                imaginary-farms.com
+              </a>
+            </div>
+          </main>
+        </div>
+      </div>
+    </AppContext.Provider>
+  );
+}
