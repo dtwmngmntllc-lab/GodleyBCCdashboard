@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, createContext, useContext } from "react";
 import { supabase, AGENCY_ID } from "../lib/supabase.js";
 
 // ============================================================
@@ -13,15 +13,11 @@ import { supabase, AGENCY_ID } from "../lib/supabase.js";
 //   4. Calendar      — Compliance deadlines and recurring items
 //   5. Audit Log     — Record of reviews, flags, completions
 //
-// DATA: Reads compliance_rules, compliance_calendar,
-//       compliance_log tables in Supabase
-// In production replace MOCK_DATA with:
-//   const { data } = await supabase
-//     .from('compliance_rules')
-//     .select('*')
-//     .eq('agency_id', agencyId)
-//     .eq('is_active', true)
-//     .order('category')
+// DATA: Live-wired to Supabase compliance_rules, compliance_calendar,
+//       and compliance_log tables via a top-level useEffect that runs
+//       on mount. Values are passed to sections via CCDataContext.
+//       MOCK_CHECKLIST (Pre-Post 26-item checklist) is static reference
+//       data and is intentionally hardcoded — it is not per-agency.
 // ============================================================
 
 
@@ -66,37 +62,17 @@ const CATEGORY_CONFIG = {
   medicare:              { label: "Medicare",               color: T.red,    icon: "🏥" },
 };
 
-// ─── Mock Data ────────────────────────────────────────────────
-const MOCK_RULES = [
-  { id:"1",  rule_code:"AA05-002", category:"contract",     title:'Customer Not Client — Principal-Agent Rule',      severity:"critical", description:'The word "client" is PROHIBITED. The agent-customer relationship is Principal-Agent, not fiduciary. Always say "customer." Using "client" misrepresents your legal role and creates liability.', source:"AA05 Section I.B" },
-  { id:"2",  rule_code:"AA05-003", category:"contract",     title:"Agent Title Only — No Expert or Specialist",      severity:"critical", description:'Never use "expert," "specialist," "advisor," or "consultant." AA05 I.O limits you to "agent" or "licensed agent" only. These words create legally heightened expectations that become court ammunition.', source:"AA05 Section I.O" },
-  { id:"3",  rule_code:"AA05-004", category:"contract",     title:"Exclusivity — SF as Principal Occupation",        severity:"critical", description:"State Farm must be your principal occupation. Cannot write for other carriers or act as broker for others without written SF consent.", source:"AA05 Section I.I" },
-  { id:"4",  rule_code:"AA05-005", category:"contract",     title:"Annual Compliance Training — Mandatory",          severity:"critical", description:"Annual compliance and ethics training is a binding contractual obligation under AA05. Not optional. Must be completed every calendar year.", source:"AA05 Section I.D" },
-  { id:"5",  rule_code:"AD-001",   category:"advertising",  title:"Prior Approval for All SF-Referencing Advertising",severity:"critical", description:"ALL ads referring to or identifying State Farm require PRIOR WRITTEN APPROVAL. Includes print, digital, social, business cards with SF branding, signage, email marketing, and websites mentioning SF. Preapproved Hootsuite/NMP content satisfies this.", source:"AA05 Section I.H" },
-  { id:"6",  rule_code:"AD-002",   category:"advertising",  title:"No Absolutes, Guarantees, or Superlatives",       severity:"critical", description:'SF controls all pricing. Prohibited: absolutes (always/never), guarantees (will/promise), superlatives (best/#1), pricing language (low cost/cheap/affordable), service claims (most reliable/world-class). Exception: "best" when naming a specific award only.', source:"AA05 Sections I.D + I.N" },
-  { id:"7",  rule_code:"AD-003",   category:"advertising",  title:"Complete Prohibited Terms List",                  severity:"critical", description:"Client→Customer. Solutions→Options. Expert/Specialist→Remove. Fully licensed→Licensed. Affordable rates→Rates more affordable than you think. Best/#1→Remove. Transfers welcome→Remove. Financial freedom→Remove. World-class→Remove.", source:"AA05 Sections I.B, I.D, I.J, I.N, I.O" },
-  { id:"8",  rule_code:"SM-003",   category:"social_media", title:"Instagram — Manual Daily Posting Required",       severity:"warning",  description:"Instagram posts MUST be posted manually each day. No reliable API auto-scheduling exists. BCC will send daily reminder alerts for scheduled Instagram posts — it will NOT auto-post. Batch-prepare content but post manually.", source:"Social Chef Claude Content Playbook v1.0" },
-  { id:"9",  rule_code:"SM-005",   category:"social_media", title:"English-Only Content — FINRA Requirement",        severity:"critical", description:"ALL business content must be in English. FINRA requires archiving of all communications. Proofpoint monitoring is English-only. Non-English content cannot be properly monitored — this is a contractual compliance requirement.", source:"AA05 Section I.D + FINRA Rule 2210" },
-  { id:"10", rule_code:"SM-006",   category:"social_media", title:"Agent Liable for All Staff Social Media Posts",   severity:"critical", description:"AA05 Section I.P makes you contractually liable for every post your staff creates on behalf of the agency. Train all staff before granting account access. Review staff content before publishing.", source:"AA05 Section I.P" },
-  { id:"11", rule_code:"SM-PROHIBIT-001", category:"social_media", title:"Absolutely Prohibited Social Media Topics", severity:"critical", description:"NEVER post: investment products, mutual funds, college savings plans, specific life/health product names, pricing/rates, internal SF processes, incentive program details (ScoreCard, AIPP, bonuses), proprietary SF information, claims/underwriting rules.", source:"AA05 Sections I.D, I.F, I.H, I.N" },
-  { id:"12", rule_code:"SM-PROHIBIT-002", category:"social_media", title:"Customer Data — Absolute Prohibition",    severity:"critical", description:"Customer information is State Farm's TRADE SECRET under AA05 I.F. Sharing it on social media is a contract violation — not merely a privacy issue. Never confirm or deny someone is a customer publicly.", source:"AA05 Section I.F" },
-  { id:"13", rule_code:"SM-PROHIBIT-003", category:"social_media", title:"No PHI Visible in Photos or Videos",      severity:"critical", description:"HIPAA BAA requires safeguarding all Protected Health Information. Check all photos and video backgrounds for visible paperwork, screen displays, or documents showing health information before posting.", source:"HIPAA BAA (AMD99)" },
-  { id:"14", rule_code:"SM-PROHIBIT-006", category:"social_media", title:"Written Release Required for All People in Photos", severity:"critical", description:"A person's face is their legal property under Right of Publicity laws. Get written releases from EVERY identifiable person before posting — team members, customers, event attendees. No exceptions.", source:"Right of Publicity Laws" },
-  { id:"15", rule_code:"TM-001",   category:"trademark",    title:"SF Name — Must Be Followed by Agent",            severity:"critical", description:'State Farm in account names/usernames is ONLY authorized if immediately followed by "agent." CORRECT: "Jane Doe – State Farm Agent." INCORRECT: "Jane Doe State Farm."', source:"State Farm Brand Standards" },
-  { id:"16", rule_code:"TM-004",   category:"trademark",    title:"Google Business Profile — Insurance Only",       severity:"critical", description:"GBP is approved for insurance products ONLY. STRICTLY FORBIDDEN: financial services, banking, CDs, annuities, mutual funds, securities, specific life/health products. GBP must use SF Outlook email — Gmail is non-compliant.", source:"State Farm Business Accounts Guidelines (Sep 2025)" },
-  { id:"17", rule_code:"GIVE-001", category:"giveaways",   title:"No Element of Chance in Any Giveaway",           severity:"critical", description:'Sweepstakes, contests, lotteries, raffles, and "enter to win" are PROHIBITED. Every person who takes the specified action MUST receive the item. No randomness. COMPLIANT: "Stop by for a free umbrella." NON-COMPLIANT: "Enter to win."', source:"State Farm Giveaway Guidelines (Jul 2025)" },
-  { id:"18", rule_code:"GIVE-004", category:"giveaways",   title:"Referral Rewards Cannot Be on Social Media",     severity:"critical", description:"Referral rewards — gift cards, monetary value, gifts — may NOT be advertised on any social platform. Bank or securities-linked giveaways on social media are also prohibited.", source:"State Farm Giveaway Guidelines (Jul 2025)" },
-  { id:"19", rule_code:"FIN-001",  category:"financial",   title:"PFA — Separate Account, Never Commingled",       severity:"critical", description:"Premium Fund Account must be maintained separately at an SF-approved bank. NEVER commingled with operating or personal funds. Subject to SF audit at any time. PFA box: 2 keys maximum (agent + CSM only).", source:"AA05 Section I.K" },
-  { id:"20", rule_code:"FIN-002",  category:"financial",   title:"PFA — Not a Business Asset, Not on Balance Sheet", severity:"critical", description:"PFA is a compliance tracking item ONLY. It does NOT appear on the balance sheet. Never represent PFA as equity or use as collateral. Review with CPA annually for proper tax treatment.", source:"SF PFA Policy Guidelines" },
-  { id:"21", rule_code:"FIN-003",  category:"financial",   title:"No Rebating or Unauthorized Incentives",         severity:"critical", description:"Nothing of value may be offered contingent on a policy purchase. Gift cards for quotes are permitted. Gift cards for sales are not. Never pay for or incentivize Google reviews.", source:"AA05 Section I.D — Anti-Rebating Laws" },
-  { id:"22", rule_code:"FIN-005",  category:"financial",   title:"Agency Financial Health Benchmarks",             severity:"info",     description:"Payroll+Taxes/Gross: Healthy 40-50%, Warning >51%, Critical >55%. Rent/Gross: Healthy 5-8%, Warning >9%, Critical >12%. Net Margin: Healthy 25-35%, Warning <24%, Critical <20%. Owner Comp/Gross: Healthy 25-35%.", source:"State Farm Agency Reference Guide v1.0" },
-  { id:"23", rule_code:"LIC-001",  category:"licensing",   title:"License Verification Before Any Business Activity", severity:"critical", description:"Verify licensing before ANY product sale. Confirm agent holds required license, license is current, and any involved staff are credentialed for that specific product. Never permit unlicensed staff to perform licensed activities.", source:"AA05 Sections I.D + I.P" },
-  { id:"24", rule_code:"LIC-003",  category:"licensing",   title:"E&O Insurance — Never Let It Lapse",             severity:"critical", description:"Lapsed E&O is a contract violation. Flag renewal 90 days before expiration. Begin renewal process immediately. Provide updated certificate to SF upon renewal.", source:"SF Agent Agreement — E&O Requirements" },
-  { id:"25", rule_code:"PRIV-001", category:"data_privacy","title":"Customer Data — State Farm Trade Secret",      severity:"critical", description:"All customer information is SF's trade secret (AA05 I.F). This is a property violation if shared — not just a privacy issue. At termination, return ALL customer data within 10 days.", source:"AA05 Section I.F" },
-  { id:"26", rule_code:"PRIV-002", category:"data_privacy","title":"HIPAA Breach — Report Within 48 Hours",       severity:"critical", description:"Report any suspected PHI breach within 48 hours to 1-877-766-6371 AND written notice to Chief Privacy Officer. Implement administrative, physical, and technical PHI safeguards. HIPAA obligations survive agreement termination.", source:"HIPAA Business Associate Amendment (AMD99)" },
-  { id:"27", rule_code:"MED-001",  category:"medicare",    title:"Medicare Marketing — CMS Strict Rules",          severity:"critical", description:"PROHIBITED for Medicare: door-to-door solicitation, cold calling, gifts over $15, marketing in provider offices (except common areas), claiming to represent Medicare/government, cross-selling non-health products during Medicare appointments.", source:"CMS Medicare Marketing Guidelines" },
-];
+// ─── Live Data Context ────────────────────────────────────────
+// The main ComplianceCenter component fetches rules / calendar / log
+// from Supabase on mount and passes them through this context to
+// the individual section components. On fetch failure or while
+// loading, sections render their empty states.
+const CCDataContext = createContext({ rules: [], calendar: [], log: [], loading: true });
+const useCCData = () => useContext(CCDataContext);
 
+// ─── Static reference data: Pre-Post 26-item checklist ────────
+// This is NOT per-agency data — it's the universal social media
+// pre-post compliance checklist. Hardcoding is intentional.
 const MOCK_CHECKLIST = Array.from({ length: 26 }, (_, i) => ({
   id: `cl-${i+1}`,
   rule_code: `CHECKLIST-${String(i+1).padStart(2,"0")}`,
@@ -132,28 +108,6 @@ const MOCK_CHECKLIST = Array.from({ length: 26 }, (_, i) => ({
   severity: [0,1,2,3,4,5,6,7,8,11,12,13,14,16,17,18,23,25].includes(i) ? "critical" : "warning",
   source: "Social Chef Claude Compliance KB v2.1 — Section 18",
 }));
-
-const MOCK_CALENDAR = [
-  { id:"c1", title:"Annual Social Media Compliance Audit",    due_date:"2026-11-30", status:"upcoming", days_remaining: 217, recurrence:"annual",  severity:"warning"  },
-  { id:"c2", title:"Annual Customer Privacy Notice",          due_date:"2026-11-30", status:"upcoming", days_remaining: 217, recurrence:"annual",  severity:"warning"  },
-  { id:"c3", title:"Annual Compliance Training",              due_date:"2026-12-31", status:"upcoming", days_remaining: 248, recurrence:"annual",  severity:"critical" },
-  { id:"c4", title:"W-2 and 1099-NEC Filing Deadline",        due_date:"2027-01-31", status:"upcoming", days_remaining: 279, recurrence:"annual",  severity:"critical" },
-  { id:"c5", title:"E&O Insurance Renewal — Begin Process",   due_date:"2026-08-01", status:"upcoming", days_remaining:  96, recurrence:"annual",  severity:"critical" },
-  { id:"c6", title:"IL License Renewal",                      due_date:"2026-10-31", status:"upcoming", days_remaining: 187, recurrence:"annual",  severity:"critical" },
-  { id:"c7", title:"CE Hours Completion — IL (10 hrs remain)","due_date":"2026-10-31", status:"upcoming", days_remaining: 187, recurrence:"annual", severity:"warning" },
-  { id:"c8", title:"Monthly PFA Reconciliation",              due_date:"2026-05-14", status:"upcoming", days_remaining:  17, recurrence:"monthly", severity:"warning"  },
-  { id:"c9", title:"Monthly Auto Application Compliance Review","due_date":"2026-04-30", status:"due",  days_remaining:   3, recurrence:"monthly", severity:"warning" },
-  { id:"c10",title:"Monthly Altered Monies History Review",   due_date:"2026-04-30", status:"due",     days_remaining:   3, recurrence:"monthly", severity:"warning"  },
-];
-
-const MOCK_AUDIT_LOG = [
-  { id:"a1", date:"Apr 26, 2026", event_type:"review",          description:"Reviewed social media compliance rules library — all 27 current rules acknowledged", created_by:"Jane Smith" },
-  { id:"a2", date:"Apr 24, 2026", event_type:"claude_pushback", description:'Claude flagged content draft containing the word "specialist" — revised to "licensed agent"', created_by:"Claude" },
-  { id:"a3", date:"Apr 20, 2026", event_type:"completed",       description:"Monthly auto application compliance review completed — no issues found", created_by:"Jane Smith" },
-  { id:"a4", date:"Apr 15, 2026", event_type:"claude_pushback", description:'Claude flagged giveaway post draft containing "enter to win" language — corrected to action-based format', created_by:"Claude" },
-  { id:"a5", date:"Apr 10, 2026", event_type:"review",          description:"Pre-post checklist completed for April social media batch — 26/26 items passed", created_by:"Jane Smith" },
-  { id:"a6", date:"Mar 31, 2026", event_type:"completed",       description:"Monthly PFA reconciliation completed — sequential check order verified", created_by:"Jane Smith" },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────
 const severityConfig = (s) => ({
@@ -263,9 +217,14 @@ const TabBar = ({ tabs, active, onChange }) => (
 
 // ─── Section: Compliance Dashboard ───────────────────────────
 const ComplianceDashboard = () => {
-  const critical = MOCK_RULES.filter(r => r.severity === "critical").length;
-  const dueItems = MOCK_CALENDAR.filter(c => c.status === "due" || c.days_remaining <= 14).length;
-  const overdueItems = MOCK_CALENDAR.filter(c => c.status === "overdue").length;
+  const { rules: liveRules, calendar: liveCalendar, log: liveLog } = useCCData();
+  const rules    = liveRules    || [];
+  const calendar = liveCalendar || [];
+  const log      = liveLog      || [];
+
+  const critical = rules.filter(r => r.severity === "critical").length;
+  const dueItems = calendar.filter(c => c.status === "due" || c.days_remaining <= 14).length;
+  const overdueItems = calendar.filter(c => c.status === "overdue").length;
 
   return (
     <div>
@@ -275,7 +234,7 @@ const ComplianceDashboard = () => {
           { label:"Critical Rules",     value: critical,     color: T.red,   border: T.red   },
           { label:"Due Within 14 Days", value: dueItems,     color: T.amber, border: T.amber },
           { label:"Overdue Items",      value: overdueItems, color: overdueItems>0?T.red:T.green, border: overdueItems>0?T.red:T.green },
-          { label:"Rules in Library",   value: 57,           color: T.blue,  border: T.blue  },
+          { label:"Rules in Library",   value: rules.length, color: T.blue,  border: T.blue  },
         ].map((k,i) => (
           <div key={i} style={{ background:T.white, border:`1px solid ${T.slate200}`, borderTop:`3px solid ${k.border}`, borderRadius:12, padding:"14px 16px" }}>
             <div style={{ fontSize:11, color:T.slate500, fontWeight:500, marginBottom:6 }}>{k.label}</div>
@@ -291,7 +250,7 @@ const ComplianceDashboard = () => {
             <span style={{ fontSize:13, fontWeight:600, color:T.slate800 }}>Upcoming deadlines</span>
             <AskBtn size="small" context="Here are my upcoming compliance deadlines. Help me prioritize what needs my immediate attention and what I should plan for in the next 90 days." />
           </div>
-          {MOCK_CALENDAR.slice(0,6).map((item,i) => {
+          {calendar.slice(0,6).map((item,i) => {
             const sc = statusConfig(item.status);
             const urgent = item.days_remaining <= 14;
             return (
@@ -336,14 +295,14 @@ const ComplianceDashboard = () => {
       {/* Recent Audit Log */}
       <Card style={{ marginTop:12 }}>
         <div style={{ fontSize:13, fontWeight:600, color:T.slate800, marginBottom:12 }}>Recent compliance activity</div>
-        {MOCK_AUDIT_LOG.slice(0,4).map((log,i) => {
-          const ec = eventConfig(log.event_type);
+        {log.slice(0,4).map((logEntry,i) => {
+          const ec = eventConfig(logEntry.event_type);
           return (
             <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"8px 0", borderBottom:i<3?`1px solid ${T.slate100}`:"none" }}>
               <span style={{ fontSize:16, flexShrink:0 }}>{ec.icon}</span>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:12, color:T.slate800 }}>{log.description}</div>
-                <div style={{ fontSize:10, color:T.slate400, marginTop:2 }}>{log.date} · {log.created_by}</div>
+                <div style={{ fontSize:12, color:T.slate800 }}>{logEntry.description}</div>
+                <div style={{ fontSize:10, color:T.slate400, marginTop:2 }}>{logEntry.date} · {logEntry.created_by}</div>
               </div>
             </div>
           );
@@ -355,6 +314,9 @@ const ComplianceDashboard = () => {
 
 // ─── Section: Rules Library ───────────────────────────────────
 const RulesLibrary = () => {
+  const { rules: liveRules } = useCCData();
+  const rulesData = liveRules || [];
+
   const [search,    setSearch]    = useState("");
   const [category,  setCategory]  = useState("all");
   const [severity,  setSeverity]  = useState("all");
@@ -362,15 +324,19 @@ const RulesLibrary = () => {
 
   const categories = ["all", ...Object.keys(CATEGORY_CONFIG).filter(c => c !== "social_media_checklist")];
 
-  const filtered = useMemo(() => MOCK_RULES.filter(r => {
+  const filtered = useMemo(() => rulesData.filter(r => {
     if (category !== "all" && r.category !== category) return false;
     if (severity !== "all" && r.severity !== severity) return false;
     if (search) {
       const q = search.toLowerCase();
-      return r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) || r.rule_code.toLowerCase().includes(q) || r.source.toLowerCase().includes(q);
+      const title = (r.title || "").toLowerCase();
+      const desc  = (r.description || "").toLowerCase();
+      const code  = (r.rule_code || "").toLowerCase();
+      const src   = (r.source || "").toLowerCase();
+      return title.includes(q) || desc.includes(q) || code.includes(q) || src.includes(q);
     }
     return true;
-  }), [search, category, severity]);
+  }), [search, category, severity, rulesData]);
 
   return (
     <div>
@@ -396,7 +362,7 @@ const RulesLibrary = () => {
       </div>
 
       <div style={{ fontSize:11, color:T.slate400, marginBottom:12 }}>
-        Showing {filtered.length} of {MOCK_RULES.length} rules
+        Showing {filtered.length} of {rulesData.length} rules
       </div>
 
       {/* Rules List */}
@@ -550,9 +516,12 @@ const PrePostChecklist = () => {
 
 // ─── Section: Compliance Calendar ─────────────────────────────
 const ComplianceCalendar = () => {
+  const { calendar: liveCalendar } = useCCData();
+  const calendarData = liveCalendar || [];
+
   const [filter, setFilter] = useState("all");
 
-  const filtered = MOCK_CALENDAR.filter(item => {
+  const filtered = calendarData.filter(item => {
     if (filter === "all") return true;
     if (filter === "due") return item.days_remaining <= 30;
     if (filter === "annual") return item.recurrence === "annual";
@@ -610,19 +579,41 @@ const ComplianceCalendar = () => {
 
 // ─── Section: Audit Log ───────────────────────────────────────
 const AuditLog = () => {
-  const [newNote, setNewNote] = useState("");
-  const [logs, setLogs] = useState(MOCK_AUDIT_LOG);
+  const { log: liveLog } = useCCData();
+  const initialLogs = liveLog || [];
 
-  const addLog = () => {
-    if (!newNote.trim()) return;
-    setLogs(prev => [{
-      id: `a${Date.now()}`,
+  const [newNote, setNewNote] = useState("");
+  const [logs, setLogs] = useState(initialLogs);
+
+  // Keep logs in sync with whatever the provider hands us, while
+  // still allowing newly added entries to stay on screen.
+  useEffect(() => { setLogs(initialLogs); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [liveLog]);
+
+  const addLog = async () => {
+    const note = newNote.trim();
+    if (!note) return;
+    const optimisticId = `tmp-${Date.now()}`;
+    const optimisticEntry = {
+      id: optimisticId,
       date: new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
       event_type: "review",
-      description: newNote.trim(),
-      created_by: "Jane Smith",
-    }, ...prev]);
+      description: note,
+      created_by: "Owner",
+    };
+    setLogs(prev => [optimisticEntry, ...prev]);
     setNewNote("");
+    if (supabase && AGENCY_ID) {
+      try {
+        await supabase.from("compliance_log").insert({
+          agency_id:   AGENCY_ID,
+          event_type:  "review",
+          description: note,
+          created_by:  "owner",
+        });
+      } catch (e) {
+        console.error("compliance_log insert error:", e);
+      }
+    }
   };
 
   return (
@@ -675,6 +666,91 @@ const AuditLog = () => {
 export default function ComplianceCenter() {
   const [section, setSection] = useState("dashboard");
 
+  // ── Live data: rules, calendar, log ────────────────────────
+  const [liveRules,    setLiveRules]    = useState([]);
+  const [liveCalendar, setLiveCalendar] = useState([]);
+  const [liveLog,      setLiveLog]      = useState([]);
+  const [loading,      setLoading]      = useState(true);
+
+  const loadData = async () => {
+    if (!supabase || !AGENCY_ID) { setLoading(false); return; }
+    try {
+      const [rRes, cRes, lRes] = await Promise.all([
+        supabase.from("compliance_rules")
+          .select("*")
+          .eq("agency_id", AGENCY_ID)
+          .eq("is_active", true)
+          .order("severity", { ascending: true })
+          .order("rule_code", { ascending: true }),
+        supabase.from("compliance_calendar")
+          .select("*, compliance_rules(severity, rule_code)")
+          .eq("agency_id", AGENCY_ID)
+          .order("due_date", { ascending: true }),
+        supabase.from("compliance_log")
+          .select("*")
+          .eq("agency_id", AGENCY_ID)
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
+      if (rRes.error) console.error("compliance_rules load:", rRes.error);
+      if (cRes.error) console.error("compliance_calendar load:", cRes.error);
+      if (lRes.error) console.error("compliance_log load:", lRes.error);
+
+      setLiveRules(Array.isArray(rRes.data) ? rRes.data : []);
+
+      // Augment calendar rows with days_remaining + severity so
+      // the existing UI shape continues to work.
+      const today = new Date(); today.setHours(0,0,0,0);
+      const calAug = (Array.isArray(cRes.data) ? cRes.data : []).map(c => {
+        let daysRemaining = 0;
+        if (c.due_date) {
+          const due = new Date(c.due_date); due.setHours(0,0,0,0);
+          daysRemaining = Math.round((due - today) / (1000*60*60*24));
+        }
+        const status = c.completed_at
+          ? "completed"
+          : daysRemaining < 0 ? "overdue"
+          : daysRemaining <= 14 ? "due"
+          : "upcoming";
+        return {
+          ...c,
+          days_remaining: daysRemaining,
+          status,
+          severity: c.compliance_rules?.severity || "info",
+          recurrence: c.recurrence || "none",
+        };
+      });
+      setLiveCalendar(calAug);
+
+      // Format compliance_log rows into the shape AuditLog expects.
+      const logFmt = (Array.isArray(lRes.data) ? lRes.data : []).map(row => ({
+        id:          row.id,
+        date:        row.created_at
+          ? new Date(row.created_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})
+          : "",
+        event_type:  row.event_type || "review",
+        description: row.description || "",
+        created_by:  row.created_by  || "system",
+      }));
+      setLiveLog(logFmt);
+    } catch (e) {
+      console.error("ComplianceCenter load exception:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const ccData = useMemo(() => ({
+    rules:    liveRules,
+    calendar: liveCalendar,
+    log:      liveLog,
+    loading,
+  }), [liveRules, liveCalendar, liveLog, loading]);
+
+  const ruleCount = liveRules.length || 0;
+
   // ── Add/Edit Modal State ────────────────────────────────────
   const [showAddRule, setShowAddRule] = useState(false);
   const [newRule, setNewRule] = useState({title:"", category:"", description:"", severity:"info"});
@@ -698,20 +774,21 @@ export default function ComplianceCenter() {
 
   const sections = [
     { id:"dashboard", label:"Dashboard"         },
-    { id:"rules",     label:"Rules Library (57)"},
+    { id:"rules",     label:`Rules Library (${ruleCount})`},
     { id:"checklist", label:"Pre-Post Checklist"},
     { id:"calendar",  label:"Calendar"          },
     { id:"log",       label:"Audit Log"         },
   ];
 
   return (
+    <CCDataContext.Provider value={ccData}>
     <div>
       {/* Module Header */}
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:16 }}>
         <div>
           <div style={{ fontSize:20, fontWeight:700, color:T.slate900, letterSpacing:"-0.02em" }}>Compliance Center</div>
           <div style={{ fontSize:12, color:T.slate500, marginTop:3 }}>
-            57 rules · AA05 contract-based · Claude enforces these in every conversation
+            {ruleCount} rules · AA05 contract-based · Claude enforces these in every conversation
           </div>
         </div>
         <AskBtn context="I am reviewing my compliance center. I need you to act as my compliance advisor. What are the most critical compliance items I should be focused on right now as a State Farm agent? What are the most common compliance mistakes agents make?" />
@@ -783,5 +860,6 @@ export default function ComplianceCenter() {
       {section === "calendar"  && <ComplianceCalendar />}
       {section === "log"       && <AuditLog />}
     </div>
+    </CCDataContext.Provider>
   );
 }
