@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase, AGENCY_ID } from "../lib/supabase.js";
+import { useConnections } from "../lib/connections.js";
 // eslint-disable-next-line no-unused-vars
 // import { useState } from "react";
 
@@ -54,7 +55,7 @@ const T = {
   white:   "#FFFFFF",
 };
 
-// ─── Role Config ──────────────────────────────────────────────
+// ─── Role Config ───────────────────────────────────────────────
 const ROLES = {
   owner:     { label:"Owner",      color:T.navy,   bg:T.slate100, description:"Full access including settings and all financial data" },
   manager:   { label:"Manager",    color:T.blue,   bg:T.blueLt,  description:"All modules except Settings. Can manage team." },
@@ -212,7 +213,7 @@ const AgencyProfile = ({ agency }) => (
   </Card>
 );
 
-// ─── Section: Team Access ─────────────────────────────────────
+// ─── Section: Team Access ────────────────────────────────────────
 const TeamAccess = ({ users }) => {
   const [allUsers,    setAllUsers]    = useState(users);
   const [showInvite,  setShowInvite]  = useState(false);
@@ -319,54 +320,93 @@ const TeamAccess = ({ users }) => {
   );
 };
 
-// ─── Section: Connected Accounts ─────────────────────────────
-const ConnectedAccounts = ({ connections }) => (
-  <div>
-    <SectionHeader title="Connected Accounts" sub="Composio manages all external connections. Reconnect any account that shows an error." />
+// ─── Section: Connected Accounts ──────────────────────────────
+const ConnectedAccounts = ({ connections }) => {
+  const system = connections.filter(c => c.group === "system");
+  const social = connections.filter(c => c.group === "social");
 
-    <div style={{ background:T.blueLt, border:`1px solid ${T.blue}20`, borderLeft:`4px solid ${T.blue}`, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
-      <div style={{ fontSize:12, fontWeight:600, color:T.navy, marginBottom:3 }}>How connections work</div>
-      <div style={{ fontSize:11, color:T.slate600, lineHeight:1.6 }}>
-        Your BCC automations use Composio to interact with Gmail, Google Drive, Facebook, LinkedIn, and Instagram on your behalf. Connections are authenticated via your Google account and each platform's OAuth. If a connection expires, automations that depend on it will fail until reconnected. All connections are managed in your Composio dashboard.
-      </div>
-    </div>
+  const STATUS_STYLE = {
+    healthy: { background:T.greenLt,  color:"#065F46", label:"Connected" },
+    error:   { background:T.redLt,    color:"#991B1B", label:"Error"     },
+    manual:  { background:T.purpleLt, color:"#5B21B6", label:"Manual"    },
+    pending: { background:T.amberLt,  color:"#92400E", label:"Not connected" },
+  };
 
-    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-      {connections.map(conn => (
-        <Card key={conn.id} style={{ border:`1px solid ${conn.status==="error"?T.red:T.slate200}` }}>
-          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ width:44, height:44, borderRadius:12, background:conn.status==="error"?T.redLt:T.slate50, border:`1px solid ${conn.status==="error"?T.red:T.slate200}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
-              {conn.icon}
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                <span style={{ fontSize:13, fontWeight:700, color:T.slate900 }}>{conn.platform}</span>
-                <span style={{ fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:20, ...{
-                  healthy:{ background:T.greenLt, color:"#065F46" },
-                  error:  { background:T.redLt,   color:"#991B1B" },
-                  manual: { background:T.purpleLt,color:"#5B21B6" },
-                }[conn.status] }}>{conn.status === "healthy" ? "Connected" : conn.status === "error" ? "Error" : "Manual"}</span>
-              </div>
-              <div style={{ fontSize:11, color:T.slate600 }}>{conn.account}</div>
-              <div style={{ fontSize:10, color:conn.status==="error"?T.red:T.slate400, marginTop:2 }}>{conn.note} · Last sync: {conn.last_sync}</div>
-            </div>
-            {conn.status === "error" && (
-              <button style={{ padding:"7px 14px", fontSize:11, fontWeight:600, color:T.white, background:T.red, border:"none", borderRadius:8, cursor:"pointer", flexShrink:0 }}>
-                Reconnect
-              </button>
-            )}
-            {conn.status === "healthy" && (
-              <div style={{ fontSize:11, color:T.green, fontWeight:600, flexShrink:0 }}>✓ Active</div>
-            )}
-            {conn.status === "manual" && (
-              <div style={{ fontSize:10, color:T.purple, fontWeight:600, flexShrink:0, maxWidth:120, textAlign:"right", lineHeight:1.4 }}>Manual posting required daily</div>
-            )}
+  const ConnRow = ({ conn }) => {
+    const s = STATUS_STYLE[conn.status] || STATUS_STYLE.pending;
+    const isError = conn.status === "error";
+    return (
+      <Card style={{ border:`1px solid ${isError?T.red:T.slate200}` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+          <div style={{ width:44, height:44, borderRadius:12, background:isError?T.redLt:T.slate50, border:`1px solid ${isError?T.red:T.slate200}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>
+            {conn.icon}
           </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+              <span style={{ fontSize:13, fontWeight:700, color:T.slate900 }}>{conn.platform}</span>
+              <span style={{ fontSize:10, fontWeight:600, padding:"3px 8px", borderRadius:20, background:s.background, color:s.color }}>{s.label}</span>
+            </div>
+            <div style={{ fontSize:11, color:T.slate600 }}>{conn.account}</div>
+            <div style={{ fontSize:10, color:isError?T.red:T.slate400, marginTop:2 }}>{conn.note}{conn.last_sync && conn.last_sync !== "—" ? ` · Last sync: ${conn.last_sync}` : ""}</div>
+          </div>
+          {conn.status === "error" && (
+            <button style={{ padding:"7px 14px", fontSize:11, fontWeight:600, color:T.white, background:T.red, border:"none", borderRadius:8, cursor:"pointer", flexShrink:0 }}>
+              Reconnect
+            </button>
+          )}
+          {conn.status === "healthy" && (
+            <div style={{ fontSize:11, color:T.green, fontWeight:600, flexShrink:0 }}>✓ Active</div>
+          )}
+          {conn.status === "manual" && (
+            <div style={{ fontSize:10, color:T.purple, fontWeight:600, flexShrink:0, maxWidth:120, textAlign:"right", lineHeight:1.4 }}>Manual posting required daily</div>
+          )}
+          {conn.status === "pending" && (
+            <div style={{ fontSize:10, color:T.amber, fontWeight:600, flexShrink:0, maxWidth:140, textAlign:"right", lineHeight:1.4 }}>Authorize in Composio</div>
+          )}
+        </div>
+      </Card>
+    );
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Connected Accounts" sub="Composio manages all external connections. Reconnect any account that shows an error." />
+
+      <div style={{ background:T.blueLt, border:`1px solid ${T.blue}20`, borderLeft:`4px solid ${T.blue}`, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
+        <div style={{ fontSize:12, fontWeight:600, color:T.navy, marginBottom:3 }}>How connections work</div>
+        <div style={{ fontSize:11, color:T.slate600, lineHeight:1.6 }}>
+          Your BCC automations use Composio to interact with Gmail, Google Drive, Facebook, LinkedIn, and Instagram on your behalf. Connections are authenticated via your Google account and each platform&apos;s OAuth. If a connection expires, automations that depend on it will fail until reconnected. All connections are managed in your Composio dashboard.
+        </div>
+      </div>
+
+      {system.length > 0 && (
+        <div style={{ marginBottom:18 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:T.slate700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8 }}>System integrations</div>
+          <div style={{ fontSize:11, color:T.slate500, marginBottom:10 }}>The core systems that power your BCC. These run under your Google account.</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {system.map(conn => <ConnRow key={conn.id} conn={conn} />)}
+          </div>
+        </div>
+      )}
+
+      {social.length > 0 && (
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:T.slate700, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8 }}>Social platforms</div>
+          <div style={{ fontSize:11, color:T.slate500, marginBottom:10 }}>Authorize each platform in Composio to enable auto-posting from your content calendar.</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {social.map(conn => <ConnRow key={conn.id} conn={conn} />)}
+          </div>
+        </div>
+      )}
+
+      {connections.length === 0 && (
+        <Card>
+          <div style={{ fontSize:12, color:T.slate500, textAlign:"center", padding:24 }}>Loading connections…</div>
         </Card>
-      ))}
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Section: BCC Configuration ──────────────────────────────
 const BCCConfiguration = ({ config }) => {
@@ -462,7 +502,7 @@ const BCCConfiguration = ({ config }) => {
   );
 };
 
-// ─── Section: About ───────────────────────────────────────────
+// ─── Section: About ─────────────────────────────────────────────
 const About = ({ agency: agencyProp }) => {
   const agency = agencyProp || {};
   const [tab, setTab] = useState("stack");
@@ -785,7 +825,7 @@ const About = ({ agency: agencyProp }) => {
   );
 };
 
-// ─── Main Settings Module ─────────────────────────────────────
+// ─── Main Settings Module ───────────────────────────────────
 export default function Settings() {
 
   const [agencyData, setAgencyData] = useState(null);
@@ -821,7 +861,7 @@ export default function Settings() {
     { id:"about",       label:"About"              },
   ];
 
-  // ─── Normalize DB rows → component props ────────────────────
+  // ─── Normalize DB rows → component props ──────────────────────────
   // The DB column names don't always match what the section
   // components expect. Map them here so we can pass live data
   // straight in. Null fields render as "—" in FieldRow.
@@ -856,10 +896,11 @@ export default function Settings() {
     pending:    !u.last_login,
   }));
 
-  // Connections — surface from social_accounts/composio in a
-  // later patch. For now pass an empty list so the Connections
-  // tab shows real state ("none connected") rather than mocks.
-  const connectionsList = [];
+  // Connections — combined system integrations (Gmail, Drive,
+  // GitHub, Composio, Supabase, Vercel) + social platforms
+  // (FB, IG, LinkedIn, X) from social_accounts. See
+  // lib/connections.js for shape and status logic.
+  const { connections: connectionsList } = useConnections(AGENCY_ID);
 
   // Configuration — overlay any settings rows on top of safe
   // defaults so BCCConfiguration always has its expected keys.
