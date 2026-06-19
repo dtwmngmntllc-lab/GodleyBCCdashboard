@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase, AGENCY_ID } from "../lib/supabase.js";
+import { useSupabaseTable } from "../lib/hooks.js";
 
 // ============================================================
 // BCC SOCIAL MEDIA MODULE v1.0
@@ -170,14 +171,14 @@ const AskBtn = ({ context, size = "normal", demoMode = false }) => {
       <button
         onClick={open ? () => { setOpen(false); setTimeout(() => { setCopied(false); setOpened(false); }, 200); } : ask}
         style={{ display: "flex", alignItems: "center", gap: 5, background: open ? T.slate100 : T.blue, color: open ? T.blue : T.white, border: open ? `1px solid ${T.blue}` : "1px solid transparent", borderRadius: 7, padding: small ? "5px 10px" : "7px 13px", fontSize: small ? 10 : 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
-      >\u26a1 Ask Claude</button>
+      >⚡ Ask Claude</button>
       {open && (
         <div role="dialog" aria-label="Ask Claude" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 60, width: 300, background: T.white, border: `1px solid ${T.slate100}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(15,23,42,0.16)", padding: 14, textAlign: "left" }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#16A34A", marginBottom: 4 }}>
             {copied ? "\u2713 Context copied to your clipboard" : "Copying\u2026"}
           </div>
           <div style={{ fontSize: 11, color: T.slate500, marginBottom: 8, lineHeight: 1.5 }}>
-            This is what Claude will see \u2014 your data from this screen.
+            This is what Claude will see — your data from this screen.
           </div>
           <div style={{ fontSize: 11, lineHeight: 1.55, color: T.slate500, background: T.slate100, borderRadius: 8, padding: 9, maxHeight: 92, overflow: "hidden", whiteSpace: "pre-wrap" }}>{preview}</div>
           <div style={{ marginTop: 10 }}>
@@ -191,12 +192,12 @@ const AskBtn = ({ context, size = "normal", demoMode = false }) => {
               </div>
             ) : (
               <div style={{ background: "#ECFDF3", border: "1px solid #16A34A33", borderRadius: 8, padding: "8px 11px", fontSize: 11, lineHeight: 1.55, color: "#16A34A" }}>
-                \u2713 Claude.ai opened in a new tab \u2014 paste with Ctrl/\u2318+V.
+                ✓ Claude.ai opened in a new tab — paste with Ctrl/⌘+V.
               </div>
             )}
           </div>
           <div style={{ marginTop: 9, fontSize: 10, color: T.slate400, lineHeight: 1.5 }}>
-            Opens <em>your</em> Claude account \u2014 your subscription, your Project.
+            Opens <em>your</em> Claude account — your subscription, your Project.
           </div>
         </div>
       )}
@@ -214,15 +215,21 @@ const StatBar = ({ value, max, color }) => (
 // ─── Section: Overview ────────────────────────────────────────
 const SocialOverview = ({ posts, analytics }) => {
   // Dynamic today filter — formats current date as "Mon DD" to match post date format
-  const todayLabel = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const now = new Date();
+  const todayLabel = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const todayHeading = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const todayPosts = posts.filter(p => p.date === todayLabel);
   const scheduledThisWeek = posts.filter(p => p.status === "scheduled" || p.status === "draft").length;
-  const failedRecent = posts.filter(p => p.status === "failed").length;
+  const failedRecent = posts.filter(p => p.status === "failed");
   const manualNeeded = posts.filter(p => p.status === "scheduled" && p.requires_manual).length;
 
+  const safePct = (curr, prev) => {
+    if (!prev || prev <= 0) return null;
+    return Math.round(((curr - prev) / prev) * 100);
+  };
   const weekChange = {
-    reach: Math.round(((analytics.this_week.total_reach - analytics.last_week.total_reach) / analytics.last_week.total_reach) * 100),
-    likes: Math.round(((analytics.this_week.total_likes - analytics.last_week.total_likes) / analytics.last_week.total_likes) * 100),
+    reach: safePct(analytics.this_week.total_reach, analytics.last_week.total_reach),
+    likes: safePct(analytics.this_week.total_likes, analytics.last_week.total_likes),
   };
 
   return (
@@ -231,7 +238,7 @@ const SocialOverview = ({ posts, analytics }) => {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:10, marginBottom:16 }}>
         {[
           { label:"Posts This Week",    value:analytics.this_week.total_posts,  color:T.blue,  border:T.blue  },
-          { label:"Total Reach",        value:analytics.this_week.total_reach.toLocaleString(), color:T.green, border:T.green, sub:`↑${weekChange.reach}% vs last week` },
+          { label:"Total Reach",        value:analytics.this_week.total_reach.toLocaleString(), color:T.green, border:T.green, sub: weekChange.reach !== null ? `${weekChange.reach >= 0 ? "↑" : "↓"}${Math.abs(weekChange.reach)}% vs last week` : null },
           { label:"Drafts Scheduled",   value:scheduledThisWeek, color:T.amber, border:T.amber },
           { label:"Manual Posts Needed",value:manualNeeded,      color:manualNeeded>0?T.purple:T.green, border:manualNeeded>0?T.purple:T.green },
         ].map((k,i) => (
@@ -255,10 +262,14 @@ const SocialOverview = ({ posts, analytics }) => {
       )}
 
       {/* Failed Post Alert */}
-      {failedRecent > 0 && (
+      {failedRecent.length > 0 && (
         <div style={{ background:T.redLt, border:`1px solid #FECACA`, borderLeft:`4px solid ${T.red}`, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:"#991B1B", marginBottom:2 }}>⚠️ Failed post detected</div>
-          <div style={{ fontSize:11, color:"#991B1B" }}>1 Instagram post failed on Apr 25. Review the calendar and repost manually.</div>
+          <div style={{ fontSize:12, fontWeight:700, color:"#991B1B", marginBottom:2 }}>⚠️ Failed {failedRecent.length === 1 ? "post" : "posts"} detected</div>
+          <div style={{ fontSize:11, color:"#991B1B" }}>
+            {failedRecent.length} {failedRecent.length === 1 ? "post" : "posts"} failed
+            {failedRecent[0]?.date ? ` (most recent: ${failedRecent[0].date})` : ""}.
+            Review the calendar and repost manually.
+          </div>
         </div>
       )}
 
@@ -270,7 +281,7 @@ const SocialOverview = ({ posts, analytics }) => {
       </div>
 <Card>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-            <span style={{ fontSize:13, fontWeight:600, color:T.slate800 }}>Today — Monday April 27</span>
+            <span style={{ fontSize:13, fontWeight:600, color:T.slate800 }}>Today — {todayHeading}</span>
             <AskBtn size="small" context={`Today's social media posts:\n${todayPosts.map(p=>`${p.platform.toUpperCase()} at ${p.time}: "${p.caption}" — Status: ${p.status}${p.requires_manual?" (MANUAL POSTING REQUIRED)":""}`).join("\n")}\n\nHelp me review today's content for compliance and engagement quality. Check against the 80/20 rule and the pre-post checklist.`} />
           </div>
           {todayPosts.length === 0 ? (
@@ -744,6 +755,8 @@ Please draft a complete, compliant post ready to publish. Include:
 // ─── Main Social Media Module ─────────────────────────────────
 export default function SocialMedia() {
   const [section, setSection] = useState("overview");
+  const { data: liveCalendar, loading: calendarLoading } = useSupabaseTable("content_calendar", AGENCY_ID, { orderBy: "scheduled_date", ascending: false });
+  const useMockData = import.meta.env.VITE_USE_MOCK_DATA !== "false";
 
   const sections = [
     { id:"overview",  label:"Overview"      },
@@ -771,6 +784,129 @@ export default function SocialMedia() {
     window.location.reload();
   };
 
+  // ─── Map content_calendar rows into the shape the section components expect ─
+  // DB columns vs. component fields:
+  //   scheduled_date + scheduled_time → date + time (display formatted)
+  //   content_type → pillar
+  //   engagement_notes → engagement (parsed from JSON if present, else null)
+  const posts = useMemo(() => {
+    if (!Array.isArray(liveCalendar) || liveCalendar.length === 0) {
+      return useMockData ? MOCK_POSTS : [];
+    }
+    return liveCalendar.map(row => {
+      // Parse engagement_notes if it looks like JSON, otherwise leave null
+      let engagement = null;
+      if (row.engagement_notes && typeof row.engagement_notes === "string") {
+        try {
+          const parsed = JSON.parse(row.engagement_notes);
+          if (parsed && typeof parsed === "object") engagement = parsed;
+        } catch { /* not JSON, keep null */ }
+      } else if (row.engagement_notes && typeof row.engagement_notes === "object") {
+        engagement = row.engagement_notes;
+      }
+      const dateLabel = row.scheduled_date
+        ? new Date(row.scheduled_date + "T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})
+        : "—";
+      const timeLabel = row.scheduled_time
+        ? (() => {
+            const [h, m] = row.scheduled_time.split(":");
+            const d = new Date(); d.setHours(parseInt(h,10), parseInt(m,10), 0);
+            return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+          })()
+        : "—";
+      return {
+        id:              row.id,
+        platform:        row.platform || "facebook",
+        date:            dateLabel,
+        time:            timeLabel,
+        status:          row.status || "draft",
+        pillar:          row.content_type || "educate",
+        caption:         row.caption || "",
+        requires_manual: row.requires_manual === true || row.platform === "instagram",
+        engagement,
+      };
+    });
+  }, [liveCalendar, useMockData]);
+
+  // ─── Analytics computed from real posts ───────────────────────
+  // Until we have a proper social_analytics table, derive what we can
+  // from posts themselves: counts by platform, by pillar, by week.
+  const analytics = useMemo(() => {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
+    const twoWeeksAgo = new Date(now.getTime() - 14*24*60*60*1000);
+
+    // Try parsing each post's scheduled_date as a real date for window math.
+    const parseDate = (p) => {
+      if (!p || !p.date) return null;
+      const year = now.getFullYear();
+      const d = new Date(`${p.date} ${year}`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const inWindow = (p, start) => {
+      const d = parseDate(p);
+      return d && d >= start && d <= now;
+    };
+
+    const thisWeekPosts = posts.filter(p => inWindow(p, weekAgo));
+    const lastWeekPosts = posts.filter(p => {
+      const d = parseDate(p);
+      return d && d >= twoWeeksAgo && d < weekAgo;
+    });
+
+    const sumEng = (list, k) =>
+      list.reduce((s, p) => s + (p.engagement?.[k] || 0), 0);
+
+    const byPlatform = Object.keys(PLATFORMS).map(plat => {
+      const list = thisWeekPosts.filter(p => p.platform === plat);
+      const best = list
+        .filter(p => p.engagement)
+        .sort((a,b) => (b.engagement.reach||0) - (a.engagement.reach||0))[0];
+      return {
+        platform:  plat,
+        posts:     list.length,
+        reach:     sumEng(list, "reach"),
+        likes:     sumEng(list, "likes"),
+        comments:  sumEng(list, "comments"),
+        shares:    sumEng(list, "shares"),
+        best_post: best ? (best.caption || "").slice(0, 40) : "—",
+      };
+    });
+
+    const byPillar = Object.keys(PILLARS).map(pil => {
+      const list = thisWeekPosts.filter(p => p.pillar === pil);
+      const reaches = list.map(p => p.engagement?.reach || 0);
+      const likes   = list.map(p => p.engagement?.likes || 0);
+      return {
+        pillar:    pil,
+        posts:     list.length,
+        avg_reach: reaches.length ? Math.round(reaches.reduce((a,b)=>a+b,0)/reaches.length) : 0,
+        avg_likes: likes.length   ? Math.round(likes.reduce((a,b)=>a+b,0)/likes.length)     : 0,
+      };
+    });
+
+    return {
+      this_week: {
+        total_posts:    thisWeekPosts.length,
+        total_reach:    sumEng(thisWeekPosts, "reach"),
+        total_likes:    sumEng(thisWeekPosts, "likes"),
+        total_comments: sumEng(thisWeekPosts, "comments"),
+        total_shares:   sumEng(thisWeekPosts, "shares"),
+      },
+      last_week: {
+        total_posts:    lastWeekPosts.length,
+        total_reach:    sumEng(lastWeekPosts, "reach") || 1, // avoid /0 in % math
+        total_likes:    sumEng(lastWeekPosts, "likes") || 1,
+        total_comments: sumEng(lastWeekPosts, "comments"),
+        total_shares:   sumEng(lastWeekPosts, "shares"),
+      },
+      by_platform: byPlatform,
+      by_pillar:   byPillar,
+    };
+  }, [posts]);
+
+  if (calendarLoading) return <div style={{padding:40,textAlign:"center",fontSize:13,color:"#64748B"}}>Loading social calendar…</div>;
 
   return (
     <div>
@@ -795,9 +931,9 @@ export default function SocialMedia() {
       </div>
 
       {/* Section Content */}
-      {section === "overview"  && <SocialOverview  posts={MOCK_POSTS} analytics={MOCK_ANALYTICS} />}
-      {section === "calendar"  && <ContentCalendar  posts={MOCK_POSTS} />}
-      {section === "analytics" && <Analytics        analytics={MOCK_ANALYTICS} />}
+      {section === "overview"  && <SocialOverview  posts={posts} analytics={analytics} />}
+      {section === "calendar"  && <ContentCalendar  posts={posts} />}
+      {section === "analytics" && <Analytics        analytics={analytics} />}
       {section === "platforms" && <PlatformGuide />}
       {section === "create"    && <CreateContent />}
     </div>
