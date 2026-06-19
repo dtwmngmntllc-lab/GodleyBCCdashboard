@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AGENCY_ID } from "../lib/supabase.js";
 import { useSupabaseTable } from "../lib/hooks.js";
+import { useConnections } from "../lib/connections.js";
 import EmptyState from "../components/EmptyState.jsx";
 
 // ============================================================
@@ -56,7 +57,7 @@ const T = {
   white:   "#FFFFFF",
 };
 
-// ─── Mock Data ────────────────────────────────────────────────
+// ─── Mock Data ───────────────────────────────────────────────
 const MOCK_RECIPES = [
   {
     id:"r1", recipe_name:"Daily Briefing Email",
@@ -257,14 +258,14 @@ const AskBtn = ({ context, size = "normal", demoMode = false }) => {
       <button
         onClick={open ? () => { setOpen(false); setTimeout(() => { setCopied(false); setOpened(false); }, 200); } : ask}
         style={{ display: "flex", alignItems: "center", gap: 5, background: open ? T.slate100 : T.blue, color: open ? T.blue : T.white, border: open ? `1px solid ${T.blue}` : "1px solid transparent", borderRadius: 7, padding: small ? "5px 10px" : "7px 13px", fontSize: small ? 10 : 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
-      >\u26a1 Ask Claude</button>
+      >⚡ Ask Claude</button>
       {open && (
         <div role="dialog" aria-label="Ask Claude" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 60, width: 300, background: T.white, border: `1px solid ${T.slate100}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(15,23,42,0.16)", padding: 14, textAlign: "left" }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#16A34A", marginBottom: 4 }}>
             {copied ? "\u2713 Context copied to your clipboard" : "Copying\u2026"}
           </div>
           <div style={{ fontSize: 11, color: T.slate500, marginBottom: 8, lineHeight: 1.5 }}>
-            This is what Claude will see \u2014 your data from this screen.
+            This is what Claude will see — your data from this screen.
           </div>
           <div style={{ fontSize: 11, lineHeight: 1.55, color: T.slate500, background: T.slate100, borderRadius: 8, padding: 9, maxHeight: 92, overflow: "hidden", whiteSpace: "pre-wrap" }}>{preview}</div>
           <div style={{ marginTop: 10 }}>
@@ -278,12 +279,12 @@ const AskBtn = ({ context, size = "normal", demoMode = false }) => {
               </div>
             ) : (
               <div style={{ background: "#ECFDF3", border: "1px solid #16A34A33", borderRadius: 8, padding: "8px 11px", fontSize: 11, lineHeight: 1.55, color: "#16A34A" }}>
-                \u2713 Claude.ai opened in a new tab \u2014 paste with Ctrl/\u2318+V.
+                ✓ Claude.ai opened in a new tab — paste with Ctrl/⌘+V.
               </div>
             )}
           </div>
           <div style={{ marginTop: 9, fontSize: 10, color: T.slate400, lineHeight: 1.5 }}>
-            Opens <em>your</em> Claude account \u2014 your subscription, your Project.
+            Opens <em>your</em> Claude account — your subscription, your Project.
           </div>
         </div>
       )}
@@ -529,7 +530,7 @@ const Recipes = ({ recipes, onToggle }) => {
   );
 };
 
-// ─── Section: Connections ─────────────────────────────────────
+// ─── Section: Connections ───────────────────────────────────────
 const Connections = ({ connections }) => (
   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
     <div style={{ fontSize:13, color:T.slate500, marginBottom:4, lineHeight:1.6 }}>
@@ -567,7 +568,7 @@ const Connections = ({ connections }) => (
   </div>
 );
 
-// ─── Section: Daily Briefing ──────────────────────────────────
+// ─── Section: Daily Briefing ────────────────────────────────────
 const DailyBriefingSection = ({ briefings }) => {
   const [selected, setSelected] = useState(briefings[0]?.id);
   const current = briefings.find(b => b.id === selected);
@@ -706,11 +707,13 @@ const DocImporter = ({ imports }) => {
   );
 };
 
-// ─── Main Automations Module ──────────────────────────────────
+// ─── Main Automations Module ───────────────────────────────
 export default function Automations() {
   const [section, setSection] = useState("overview");
   const { data: liveRecipes, loading: recipesLoading } = useSupabaseTable("automation_recipes", AGENCY_ID, { orderBy: "created_at", ascending: false });
   const { data: liveRunLog }   = useSupabaseTable("automation_run_log", AGENCY_ID, { orderBy: "run_at", ascending: false });
+  const { data: liveDocuments } = useSupabaseTable("documents", AGENCY_ID, { orderBy: "created_at", ascending: false });
+  const { connections: liveConnections } = useConnections(AGENCY_ID);
   const useMockData = import.meta.env.VITE_USE_MOCK_DATA !== "false";
 
   const [recipes, setRecipes] = useState(useMockData ? MOCK_RECIPES : []);
@@ -722,6 +725,40 @@ export default function Automations() {
     ? liveRunLog
     : useMockData ? MOCK_RUN_LOG : [];
 
+  // Live connections drive both the Overview card and the Connections tab.
+  // The helper always returns at least the 7 system integrations + 4 social
+  // platform rows (social rows in "pending" state until Deatria authorizes).
+  const connections = liveConnections;
+
+  // Daily Briefing history doesn't have a dedicated table yet — derive from
+  // automation_run_log filtered to the Daily Briefing recipe. Falls through
+  // to empty state when nothing has run yet.
+  const briefingRecipeId = recipes.find(r => /daily.?brief/i.test(r.recipe_name || ""))?.id;
+  const briefings = (runLog || [])
+    .filter(r => r.recipe_id === briefingRecipeId || /daily.?brief/i.test(r.recipe_name || ""))
+    .slice(0, 14)
+    .map((r, i) => ({
+      id:        r.id || `b${i}`,
+      date:      r.run_at ? new Date(r.run_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—",
+      sent_at:   r.run_at ? new Date(r.run_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "—",
+      delivered: r.status === "success",
+      opened:    false,
+      content:   r.output_summary || "Briefing run logged. Open-rate tracking will be added when the briefing recipe writes delivery receipts.",
+    }));
+
+  // Doc Importer history comes from documents (real table). Map db schema
+  // into the shape the importer section already renders.
+  const imports = (liveDocuments || []).map(d => ({
+    id:         d.id,
+    date:       d.created_at ? new Date(d.created_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—",
+    file_name:  d.file_name || d.document_name || "Document",
+    source:     d.source || "Gmail",
+    status:     d.parse_error ? "partial" : (d.parsed_at ? "complete" : "pending"),
+    groq_type:  d.fixed_category || d.document_type || "tax_document",
+    tables:     Array.isArray(d.target_tables) ? d.target_tables : (d.target_table ? [d.target_table] : []),
+    records:    d.parsed_records_count || 0,
+  }));
+
   const toggleRecipe = (id) => {
     setRecipes(prev => prev.map(r => r.id === id ? { ...r, is_active: !r.is_active } : r));
   };
@@ -730,12 +767,12 @@ export default function Automations() {
   if (recipes.length === 0) return <EmptyState module="automations" />;
 
   const sections = [
-    { id:"overview",  label:"Overview"          },
-    { id:"runlog",    label:"Run Log"            },
-    { id:"recipes",   label:"Recipes (10)"       },
-    { id:"connections",label:"Connections"       },
-    { id:"briefing",  label:"Daily Briefing"     },
-    { id:"importer",  label:"Doc Importer"       },
+    { id:"overview",  label:"Overview"                       },
+    { id:"runlog",    label:"Run Log"                         },
+    { id:"recipes",   label:`Recipes (${recipes.length})`     },
+    { id:"connections",label:"Connections"                    },
+    { id:"briefing",  label:"Daily Briefing"                  },
+    { id:"importer",  label:"Doc Importer"                    },
   ];
 
   return (
@@ -745,7 +782,7 @@ export default function Automations() {
         <div>
           <div style={{ fontSize:20, fontWeight:700, color:T.slate900, letterSpacing:"-0.02em" }}>Automations</div>
           <div style={{ fontSize:12, color:T.slate500, marginTop:3 }}>
-            10 active recipes · Composio executes · Composio LLM parses · All results logged here
+            {recipes.filter(r=>r.is_active).length} active recipes · Composio executes · Composio LLM parses · All results logged here
           </div>
         </div>
         <AskBtn context="I'm reviewing my BCC automations. Give me a health check — what's running well, what needs attention, and are there any automation improvements I should consider for my agency?" />
@@ -761,12 +798,16 @@ export default function Automations() {
       </div>
 
       {/* Section Content */}
-      {section === "overview"    && <AutomationOverview recipes={recipes} runLog={runLog} connections={MOCK_CONNECTIONS} />}
+      {section === "overview"    && <AutomationOverview recipes={recipes} runLog={runLog} connections={connections} />}
       {section === "runlog"      && <RunLog runLog={runLog} />}
       {section === "recipes"     && <Recipes recipes={recipes} onToggle={toggleRecipe} />}
-      {section === "connections" && <Connections connections={MOCK_CONNECTIONS} />}
-      {section === "briefing"    && <DailyBriefingSection briefings={MOCK_BRIEFINGS} />}
-      {section === "importer"    && <DocImporter imports={MOCK_IMPORTS} />}
+      {section === "connections" && <Connections connections={connections} />}
+      {section === "briefing"    && (briefings.length > 0
+        ? <DailyBriefingSection briefings={briefings} />
+        : <Card><div style={{ fontSize:12, color:T.slate500, textAlign:"center", padding:30, lineHeight:1.7 }}>No Daily Briefing runs logged yet.<br/>Briefings will appear here automatically as the daily 12:00 UTC cron fires.</div></Card>)}
+      {section === "importer"    && (imports.length > 0
+        ? <DocImporter imports={imports} />
+        : <Card><div style={{ fontSize:12, color:T.slate500, textAlign:"center", padding:30, lineHeight:1.7 }}>No documents imported yet.<br/>Once SF comp recaps, deduction statements, bank, credit card, and payroll documents arrive in Gmail, they'll be processed and listed here.</div></Card>)}
     </div>
   );
 }
