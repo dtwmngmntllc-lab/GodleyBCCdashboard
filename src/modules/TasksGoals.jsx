@@ -223,14 +223,14 @@ const AskBtn = ({ context, size = "normal", demoMode = false }) => {
       <button
         onClick={open ? () => { setOpen(false); setTimeout(() => { setCopied(false); setOpened(false); }, 200); } : ask}
         style={{ display: "flex", alignItems: "center", gap: 5, background: open ? T.slate100 : T.blue, color: open ? T.blue : T.white, border: open ? `1px solid ${T.blue}` : "1px solid transparent", borderRadius: 7, padding: small ? "5px 10px" : "7px 13px", fontSize: small ? 10 : 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
-      >\u26a1 Ask Claude</button>
+      >⚡ Ask Claude</button>
       {open && (
         <div role="dialog" aria-label="Ask Claude" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 60, width: 300, background: T.white, border: `1px solid ${T.slate100}`, borderRadius: 12, boxShadow: "0 12px 32px rgba(15,23,42,0.16)", padding: 14, textAlign: "left" }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#16A34A", marginBottom: 4 }}>
             {copied ? "\u2713 Context copied to your clipboard" : "Copying\u2026"}
           </div>
           <div style={{ fontSize: 11, color: T.slate500, marginBottom: 8, lineHeight: 1.5 }}>
-            This is what Claude will see \u2014 your data from this screen.
+            This is what Claude will see — your data from this screen.
           </div>
           <div style={{ fontSize: 11, lineHeight: 1.55, color: T.slate500, background: T.slate100, borderRadius: 8, padding: 9, maxHeight: 92, overflow: "hidden", whiteSpace: "pre-wrap" }}>{preview}</div>
           <div style={{ marginTop: 10 }}>
@@ -244,12 +244,12 @@ const AskBtn = ({ context, size = "normal", demoMode = false }) => {
               </div>
             ) : (
               <div style={{ background: "#ECFDF3", border: "1px solid #16A34A33", borderRadius: 8, padding: "8px 11px", fontSize: 11, lineHeight: 1.55, color: "#16A34A" }}>
-                \u2713 Claude.ai opened in a new tab \u2014 paste with Ctrl/\u2318+V.
+                ✓ Claude.ai opened in a new tab — paste with Ctrl/⌘+V.
               </div>
             )}
           </div>
           <div style={{ marginTop: 9, fontSize: 10, color: T.slate400, lineHeight: 1.5 }}>
-            Opens <em>your</em> Claude account \u2014 your subscription, your Project.
+            Opens <em>your</em> Claude account — your subscription, your Project.
           </div>
         </div>
       )}
@@ -753,4 +753,3 @@ export default function TasksGoals({ onNavigate }) {
     </div>
   );
 }
-
