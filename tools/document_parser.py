@@ -104,14 +104,37 @@ def _download_and_extract(drive_file_id, file_name):
     if dl_err:
         return None, f"Drive download: {dl_err}"
 
-    sandbox_path = None
     data = dl_result.get("data", {}) if isinstance(dl_result, dict) else {}
+    sandbox_path = None
+
+    # Pattern 1: legacy keys that return a local sandbox path directly
     for key in ("file_path", "local_path", "path", "downloaded_file"):
-        if data.get(key):
-            sandbox_path = data[key]
+        val = data.get(key)
+        if isinstance(val, str) and val:
+            sandbox_path = val
             break
+
+    # Pattern 2: composio returns a temp S3/R2 URL under downloaded_file_content
     if not sandbox_path:
-        return None, f"Drive download succeeded but no local path returned (raw={str(dl_result)[:200]})"
+        content = data.get("downloaded_file_content") or {}
+        if isinstance(content, dict):
+            url = content.get("s3url") or content.get("s3_url") or content.get("url")
+            if url:
+                import os
+                import tempfile
+                safe_name = (content.get("name") or file_name or "doc").replace("/", "_")
+                local_path = os.path.join(tempfile.gettempdir(), safe_name)
+                try:
+                    with urllib.request.urlopen(url, timeout=60) as r:
+                        payload = r.read()
+                    with open(local_path, "wb") as f:
+                        f.write(payload)
+                    sandbox_path = local_path
+                except Exception as e:
+                    return None, f"S3 fetch failed: {str(e)[:200]}"
+
+    if not sandbox_path:
+        return None, f"Drive download returned no usable path (raw={str(dl_result)[:200]})"
 
     text, ext_err = _smart_file_extract(sandbox_path, show_preview=False)
     if ext_err:
