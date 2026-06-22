@@ -33,10 +33,10 @@ The pattern is consistent:
 | HRPeople | `staff`, `applicants`, `producer_production`, `payroll_detail`, `payroll_runs`, `comp_recap`, `commission_structures`, `staff_performance` | `agency.smvc_rate_pc`, `agency.blended_rate_other`, `agency.lapse_rate_annual` |
 | SocialMedia | `content_calendar`, `social_accounts`, `social_analytics` | — |
 | AlertsNotifications | `alerts`, `notification_preferences` | (mock fallback if empty) |
-| Automations | `automation_recipes`, `automation_run_log` | — |
+| Automations | `automation_recipes`, `automation_run_log`, `documents`, `social_accounts`+`settings` (via `src/lib/connections.js`) | — |
 | TasksGoals | `tasks`, `goals` | — |
-| PersistentMemory | `persistent_memory` | (currently mock-only — full wiring queued) |
-| Settings | `agency`, `users`, `settings` | — |
+| PersistentMemory | `persistent_memory` | — |
+| Settings | `agency`, `users`, `settings`, `social_accounts` (via `src/lib/connections.js`) | — |
 
 If any of these primary tables are missing entirely from the client's Supabase, the corresponding module will throw — `ErrorBoundary` will catch it and show a diagnostic, but the module won't render. Run the schema audit (`tools/schema_audit_query.sql`) to detect missing tables.
 
@@ -122,14 +122,14 @@ If the agent has historical data they want loaded before the recipes start runni
 - `compliance_log` (joined to `compliance_rules` for context) — History tab
 - `compliance_calendar` (filtered by month) — Calendar tab
 
-**If everything is empty:** Should never happen — migration 002 seeds 57 rules into `compliance_rules`. If this module is empty, migration 002 didn't run. Re-run it.
+**If everything is empty:** Should never happen — migration 002 seeds 76 rules into `compliance_rules`. If this module is empty, migration 002 didn't run. Re-run it. The Compliance Center header reads "{ruleCount} rules" dynamically from the live table count; if it shows a stale number like 57, the build is stale (was hardcoded pre-S28).
 
 **If something's wrong:**
 - Rules tab shows duplicates → migration 002 was run twice without conflict handling. DELETE duplicates by `(rule_code, agency_id)` keeping one of each.
 - History tab is empty but agent has been doing reviews → `compliance_log` writes happen via the Project Claude's compliance check workflow. If agent has been doing them outside the system, those don't show up. Going forward, the agent's Claude inserts to `compliance_log` after each rule check.
 
 **To populate from scratch:**
-- `compliance_rules`: migration 002 (run once, has 57 SF rules baseline)
+- `compliance_rules`: migration 002 (run once, has 76 SF rules baseline)
 - `compliance_log`: written by the agent's Claude during compliance check conversations
 - `compliance_calendar`: should be seeded with annual deadlines per migration 002 OR manually populated with state-specific dates
 
@@ -183,19 +183,21 @@ For installations where the agent wants their historical archives indexed, manua
 ### SocialMedia
 
 **Reads:**
-- `content_calendar` (filtered by `agency_id`, scheduled date in current week ± 30 days) — Calendar tab
-- `social_accounts` — Connected Accounts tab (which platforms are linked)
-- `social_analytics` (last 30 days) — Engagement tab
+- `content_calendar` (filtered by `agency_id`, ordered by `scheduled_date` DESC) — primary feed for Overview KPIs, Calendar, and Analytics tabs. Mapped at the JSX layer: `scheduled_date + scheduled_time → date + time`, `content_type → pillar`, `engagement_notes` (JSON) → `engagement`.
+- `social_accounts` — read indirectly via `src/lib/connections.js` (`useConnections` hook), consumed by both Settings → Connections and Automations → Connection Health card.
 
-**If empty:** Calendar shows EmptyState. Connected Accounts shows zero platforms. Agent's Claude populates `content_calendar` as it drafts posts, and `social_accounts` rows are inserted manually during install per platform connected.
+**Overview KPIs and analytics are derived from `content_calendar`.** There is no separate `social_analytics` table feed in this build. Aggregations — by-platform counts, by-pillar percentages, this-week vs last-week reach delta — are computed in a `useMemo` from the posts array. Today's-posts filter formats `new Date()` as `"Mon DD"` and matches against the formatted `scheduled_date`.
+
+**If empty:** Calendar shows EmptyState. Today header still shows the current date. KPIs render zeros. Connection Health card shows the four social rows as `pending` (Facebook / Instagram / LinkedIn / X).
 
 **If something's wrong:**
-- Posts show but never go live → Social Media Scheduler recipe (#10) hasn't fired or Composio integration is unauthorized. Check `automation_run_log` for the recipe.
-- Engagement metrics empty → `social_analytics` populated by a separate recipe (not in canonical 12; per-client opt-in).
+- Today header shows a hardcoded April date → stale build. The S30 fix replaced the hardcoded `"Monday April 27"` with a `toLocaleDateString` call.
+- Posts show but never go live → Social Media Scheduler recipe hasn't fired or Composio integration is unauthorized. Check `automation_run_log` for that recipe. Posts targeting a platform with no connected `social_accounts` row write actionable alerts instead of failing (graceful degradation).
+- Schedule / Edit / Approve buttons throw silently on click → SocialOverview is missing handler props. Fixed in S31: `setShowScheduler`, `setEditingPost`, `approvePost` are passed as props from the SocialMedia parent. If you ever extract a new sibling component out of this module, thread the same handlers through or the buttons will go silent again.
 
 **To populate:**
-- `social_accounts`: INSERT one row per connected platform during install
-- `content_calendar`: agent's Claude inserts as it drafts posts; Social Media Scheduler recipe pulls from this and posts to FB/LI
+- `social_accounts`: INSERT one row per platform (FB, IG, LinkedIn, X) during install; flip `is_connected=true` after each Composio OAuth completes.
+- `content_calendar`: agent's Claude inserts as it drafts posts; Social Media Scheduler recipe pulls from this and posts to FB / LinkedIn / X. Instagram remains manual (no API auto-posting exists).
 
 ---
 
@@ -215,10 +217,11 @@ For installations where the agent wants their historical archives indexed, manua
 ### Automations
 
 **Reads:**
-- `automation_recipes` (all rows for `agency_id`, ordered by recipe_name) — Recipes tab
-- `automation_run_log` (last 30 days, ordered by run_at DESC) — Run Log tab
+- `automation_recipes` (all rows for `agency_id`, ordered by recipe_name) — Recipes tab. Recipe count badge is dynamic (`{recipes.length}`); do not edit the JSX to hardcode a number.
+- `automation_run_log` (last 30 days, ordered by run_at DESC) — Run Log tab. Daily Briefing history is derived from this filtered by the briefing recipe name; Doc Importer history reads from `documents`.
+- `social_accounts` + `settings` + `agency` — via `src/lib/connections.js` (`useConnections`) for the Connection Health card at the top of the Recipes tab. Same source of truth as Settings → Connections.
 
-**If empty:** Module shows "No recipes configured yet." This means the canonical 12 recipes weren't seeded during install. Refer to `docs/AUTOMATIONS_INSTALL.md`.
+**If empty:** Module shows "No recipes configured yet." This means the canonical 12 recipes weren't seeded during install. Refer to `docs/AUTOMATIONS_INSTALL.md`. Connection Health card renders all 11 rows with `unknown` status until the agency / settings / social_accounts rows load.
 
 **If something's wrong:**
 - Recipes show but `last_run_status` is always NULL → migration 011 not applied OR Edge Function not deployed OR pg_cron not scheduled. Walk the runner setup steps in `docs/AUTOMATIONS_INSTALL.md` Step 5a-5d.
@@ -251,33 +254,43 @@ This is the install flow described in `docs/AUTOMATIONS_INSTALL.md`. Summary:
 ### PersistentMemory
 
 **Reads:**
-- `persistent_memory` (filtered by `agency_id`)
+- `persistent_memory` (filtered by `agency_id`, ordered by `category`)
 
-**Currently uses mock-only data** — full wiring queued for sprint. If the agent's Claude is writing to `persistent_memory` from conversations, the rows are there in Supabase but won't render in the module yet. The agent's Claude reading from the table works regardless.
+**Fully wired to live Supabase data** (S28 rewrite from a broken 32-byte placeholder to a ~375-line module). Renders all entries grouped into a category sidebar with friendly labels (`agency_profile`, `business_context`, `financial_context`, `sf_compensation`, `accounting_rules`, `compliance_rules`, `communication_prefs`, `goals`, `key_contacts`, `session_note`, plus any others present). Supports add / edit / delete with optimistic UI; writes via `supabase.from("persistent_memory").upsert(...)`. Each entry has an "⚡ Ask Claude" button that copies the entry to clipboard and opens claude.ai.
 
-**To populate (for the agent's Claude, not the module):**
-The agent's Claude should INSERT to `persistent_memory` whenever it learns something durable. See the system prompt section "YOUR STARTUP PROTOCOL."
+**If empty:** Sidebar shows zero categories, main pane shows EmptyState. Expected pre-conversation state — the agent's Claude populates rows as it learns durable facts.
+
+**If something's wrong:**
+- Entries show but the sidebar count is off → category counts come from grouping the loaded rows; an empty category simply won't appear in the sidebar.
+- Delete fails silently → check RLS policy on `persistent_memory` (anon needs UPDATE / DELETE, not just SELECT).
+- Two rows show the same title in the same category → there is NO unique constraint on `(agency_id, category)`. Each session_note is intentionally a separate row tracked by `id`. Order by `updated_at DESC` to find the latest. Do NOT add ON CONFLICT clauses against `(agency_id, category)` — it will silently no-op.
+
+**To populate:**
+The agent's Claude should INSERT to `persistent_memory` whenever it learns something durable. Schema requires `(agency_id, category, title, content)` as NOT NULL. See the Project Claude system prompt section "YOUR STARTUP PROTOCOL."
 
 ---
 
 ### Settings
 
-**Reads:**
-- **Profile tab:** `agency`
-- **Team tab:** `users` (separate from `staff` — these are people who log into the BCC)
-- **About tab:** Static — the self-heal "Keep It Connected" guide is rendered from the JSX, not from data
-- **Connectors tab:** `settings` table for credential row presence (does NOT show secret values, only confirms they exist)
+**Reads (per section — the module is split into 5 sections, not 4):**
+- **Agency Profile:** `agency` (with a normalizer block that maps DB columns to component props — `state_farm_agent_code → sf_agent_code`, `google_account_email → google_account`, strips `placeholder.invalid` emails).
+- **Team Access:** `users` reshaped to component-expected fields (separate from `staff`; these are people who log into the BCC).
+- **Connections:** `useConnections(AGENCY_ID)` from `src/lib/connections.js` — unified 11-row grid: 7 system integrations (Gmail, Drive, Calendar, Composio, Supabase, GitHub, Vercel) + 4 social platforms (FB, IG, LinkedIn, X). Status enum: `healthy | error | manual | pending`. Single source of truth shared with Automations → Connection Health card.
+- **Configuration:** `settings` rows overlaid on safe defaults via a `configMap` helper.
+- **About:** Static — the self-heal "Keep It Connected" guide is rendered from the JSX, not from data.
 
-**If empty:** Profile shows whatever is in the `agency` row. Team shows "No users yet" if `users` table is empty (which is fine for single-agent installs). About tab always renders the self-heal hero card.
+**If empty:** Agency Profile shows whatever is in the `agency` row, with em-dashes for unset fields (no `Smith Insurance Agency` / `Jane Smith` placeholders — those were eliminated in S28). Team Access shows "No users yet" if `users` is empty. Connections renders the 11 rows: system integrations should be `healthy`, social platforms `pending` pre-OAuth. About tab always renders the self-heal hero card.
 
 **If something's wrong:**
 - About tab → Keep It Connected hero card not rendering green → JSX issue, not data. ErrorBoundary should catch and show diagnostic.
-- Connectors tab shows "Composio not configured" but it is → check that `settings` rows exist for the runner credentials (`composio_api_key`, `composio_user_id`, etc.). The Connectors tab reads `settings` to confirm presence.
+- Connections tab shows Drive or Calendar as `pending` even though Composio shows them Active → the `settings` row for `composio_drive_account_id` or `composio_calendar_account_id` is missing. `useConnections` reads those exact keys. Seed them with the `ca_*` IDs from the Composio Auth Configs panel. (Old installs may have a `composio_googledrive_account_id` row from the Smith template — harmless duplicate, but does NOT satisfy the modern key.)
+- All four social rows show as `pending` → expected pre-OAuth. They flip to `healthy` after Composio authorizes each connection and `social_accounts.is_connected` flips to true.
+- Profile section shows "Untitled Agency" → `agency` table empty or `agency_name` is NULL. Re-run migration 004 with real values, or `UPDATE agency SET agency_name = '...'`.
 
 **To populate from scratch:**
 - `agency`: migration 004 + UPDATE with real values
 - `users`: insert at install time per actual person who will log in
-- `settings`: populated during runner install (see `docs/AUTOMATIONS_INSTALL.md` Step 5c)
+- `settings`: populated during runner install (see `docs/AUTOMATIONS_INSTALL.md` Step 5c). Required keys for the Connections tab: `composio_gmail_account_id`, `composio_drive_account_id`, `composio_calendar_account_id`, `composio_supabase_account_id`, `composio_github_account_id`, `composio_user_id`, `composio_api_key`.
 
 ---
 
@@ -309,4 +322,4 @@ Path A installs run this in Step 2 of the handoff prompt. Path B installs should
 
 ---
 
-*Last updated: 2026-05-10 — initial doc shipped to close the "Project Claude doesn't know which table feeds which module" gap.*
+*Last updated: 2026-06-22 — S28 / S30 / S31 sync: PersistentMemory live wiring documented; Settings module rewritten as 5 sections with `useConnections` from `src/lib/connections.js`; ComplianceCenter rule count to 76 with dynamic header; SocialMedia analytics derived from `content_calendar` + dynamic Today header + S31 SocialOverview prop-pass fix; Automations Connection Health card.*

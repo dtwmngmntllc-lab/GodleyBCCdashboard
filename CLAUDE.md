@@ -25,7 +25,7 @@ This file is your briefing. Before touching any file in this repo, read this com
 
 This is the **BCC Web App** — a React/Vite application that gives Imaginary Farms LLC clients 
 a visual command center for their State Farm agency. It reads from their existing Supabase 
-database and displays real agency data across 10 modules.
+database and displays real agency data across 11 modules.
 
 **Live at:** Each client gets their own Vercel deployment  
 **Master repo:** github.com/cindarellabots-droid/bcc-master-template  
@@ -68,7 +68,7 @@ Steps:
 5. Run migrations 001-004 (safe, IF NOT EXISTS)
 6. Schema gap check — build bridge views for renamed tables
 7. System prompt into Claude.ai with 6 placeholders filled
-8. Verify all 10 modules, schedule training
+8. Verify all 11 modules, schedule training
 
 ### PROCESS B — New Client  
 No Supabase yet. Starting completely fresh.
@@ -105,9 +105,9 @@ VITE_USE_MOCK_DATA=false (production; set to true only for sales demos)
 | **HRPeople** | staff, applicants, **producer_production**, payroll_detail, payroll_runs, comp_recap, agency (smvc_rate_pc, blended_rate_other, lapse_rate_annual) | Add Employee writes to staff. **Performance tab includes Producer ROI projection** — see `docs/PRODUCER_ROI_INSTALL.md`. |
 | SocialMedia | content_calendar | Approve/Edit/Schedule buttons |
 | AlertsNotifications | alerts | Wired to live data with mock fallback |
-| Automations | automation_recipes, automation_run_log | **Recipes live in Supabase, scheduled via pg_cron, executed via Composio tools.** See `docs/AUTOMATIONS_INSTALL.md` for the standard 14-recipe install set. |
+| Automations | automation_recipes, automation_run_log | **Recipes live in Supabase, scheduled via pg_cron, executed via Composio tools.** See `docs/AUTOMATIONS_INSTALL.md` for the standard 12-recipe install set. |
 | TasksGoals | tasks, goals | Both wired with mock fallback. moduleConfig helper guards against unknown module keys. |
-| PersistentMemory | persistent_memory | Currently mock-only — wiring queued for sprint |
+| PersistentMemory | persistent_memory | Live wiring (S28+): category sidebar with friendly labels, add/edit/delete via Supabase with optimistic UI, per-entry Ask Claude button |
 | **Settings** | agency, **users** | About → Keep It Connected teaches the **self-heal model** — see `docs/SELF_HEAL_GUIDE.md`. |
 
 **Derived views (migration 006):**
@@ -353,7 +353,7 @@ Run in this order. Every migration is safe on existing databases — they all us
 | File | Purpose | Path A (existing DB) | Path B (clean install) |
 |---|---|---|---|
 | 001_bcc_master_schema.sql | 37 core tables | Yes — IF NOT EXISTS safe | Yes |
-| 002_seed_compliance_rules.sql | 57 SF compliance rules | Check if empty first | Yes |
+| 002_seed_compliance_rules.sql | 76 SF compliance rules | Check if empty first | Yes |
 | 003_seed_chart_of_accounts.sql | Full COA | Check if empty first | Yes |
 | 004_seed_agency_record.sql | Agency placeholder | Update with real data after | Yes |
 | 005_anon_read_policies.sql | Anon read access | **YES — ALWAYS, run this FIRST** | Yes |
@@ -572,6 +572,8 @@ This creates a commit authored by the repo owner — Vercel accepts it and build
 ---
 
 ## Automation Install — Canonical Reference (May 2026)
+
+**Note for this install (GodleyBCC):** this agency is on the **12-recipe canonical set** described earlier in this document and in the agency's Project Claude system prompt. The 14-recipe blueprint referenced below is an alternative install pattern (master-template direction) — do not retro-fit it onto this install without an explicit decision from Rebecca. The 12-recipe set is stable, observable, and matches every reference to "12 canonical recipes" in this repo.
 
 **Before doing anything with `automation_recipes` in a client install, read this first:**
 
