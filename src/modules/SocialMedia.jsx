@@ -213,7 +213,7 @@ const StatBar = ({ value, max, color }) => (
 );
 
 // ─── Section: Overview ────────────────────────────────────────
-const SocialOverview = ({ posts, analytics }) => {
+const SocialOverview = ({ posts, analytics, setShowScheduler, setEditingPost, approvePost }) => {
   // Dynamic today filter — formats current date as "Mon DD" to match post date format
   const now = new Date();
   const todayLabel = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -931,7 +931,7 @@ export default function SocialMedia() {
       </div>
 
       {/* Section Content */}
-      {section === "overview"  && <SocialOverview  posts={posts} analytics={analytics} />}
+      {section === "overview"  && <SocialOverview  posts={posts} analytics={analytics} setShowScheduler={setShowScheduler} setEditingPost={setEditingPost} approvePost={approvePost} />}
       {section === "calendar"  && <ContentCalendar  posts={posts} />}
       {section === "analytics" && <Analytics        analytics={analytics} />}
       {section === "platforms" && <PlatformGuide />}
